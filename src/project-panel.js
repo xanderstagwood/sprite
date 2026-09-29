@@ -54,13 +54,41 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
 
   header.append(projectIcon, nameEl, openBtn);
 
-  // Collab (§ collab plan, phase 1): one full-width button. A join code on
-  // the clipboard means someone shared a link, so clicking joins their
-  // session; nothing there means starting a new one, host role, link copied
-  // back to the clipboard to share. The button reflects the live state: pulsing while a session waits for someone to join, solid
-  // accent once two or more people are in it (see .collab-waiting in style.css).
+  // Collab: the whole interface is this one full-width button showing three
+  // user icons, host then the two guest slots. Clicking starts a session, or
+  // joins one if a link is on the clipboard, or leaves the one you are in. A
+  // slot lights in its person's colour when filled and hover names them; on
+  // the host, Ctrl-click on a guest's icon kicks them. The button pulses while
+  // a session waits for someone to join and goes solid accent once two or more
+  // people are in it (see .collab-waiting in style.css).
   const collabState = callbacks.collabState || 'idle';
-  const goLiveBtn = button({ label: 'Collab', fill: true, active: collabState === 'live', className: 'collab-btn' + (collabState === 'waiting' ? ' collab-waiting' : ''), onClick: callbacks.onGoLive });
+  const people = callbacks.collabParticipants?.() || [];
+  const goLiveBtn = button({
+    fill: true, active: collabState === 'live', className: 'collab-btn' + (collabState === 'waiting' ? ' collab-waiting' : ''),
+    onClick: (e) => {
+      const slot = e.target.closest('.collab-slot');
+      if (e.ctrlKey) { if (slot?.dataset.id && callbacks.onKick) callbacks.onKick(slot.dataset.id); return; } // a Ctrl-click never leaves the session
+      callbacks.onGoLive();
+    },
+  });
+  hoverTip(goLiveBtn, 'Collab');
+  for (const want of [(p) => p.role === 'host', (p) => p.slot === 1, (p) => p.slot === 2]) {
+    const p = people.find(want);
+    const slot = document.createElement('span');
+    slot.className = 'collab-slot' + (p ? ' present' : '');
+    if (p) {
+      slot.dataset.id = p.isSelf ? '' : p.id; // yourself is never a kick target
+      slot.style.setProperty('--collab-color', p.color);
+      hoverTip(slot, p.isSelf ? `${p.name} (you)` : p.name);
+    }
+    slot.append(iconElement('users'));
+    goLiveBtn.append(slot);
+  }
+  // Where Ctrl-click means right-click (macOS) the browser sends contextmenu instead.
+  goLiveBtn.addEventListener('contextmenu', (e) => {
+    const slot = e.target.closest('.collab-slot');
+    if (e.ctrlKey && slot?.dataset.id && callbacks.onKick) { e.preventDefault(); callbacks.onKick(slot.dataset.id); }
+  });
 
   const fileList = document.createElement('div');
   fileList.className = 'file-list';
@@ -217,35 +245,11 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
   addRow.append(addFileBtn);
   fileList.append(fileStack);
 
-  // One tile under the Collab button, a slot per collaborator (users icon in
-  // their color, then name). The local name click-renames; on the host,
-  // Ctrl-click on anyone else's icon or name kicks them.
-  const people = callbacks.collabParticipants?.() || [];
-  const presenceTile = people.length && document.createElement('div');
-  if (presenceTile) {
-    presenceTile.className = 'tile presence-tile';
-    for (const p of people) {
-      const slot = document.createElement('div');
-      slot.className = 'presence-slot';
-      slot.style.setProperty('--collab-color', p.color);
-      const nameEl = document.createElement('span');
-      nameEl.className = 'presence-name';
-      nameEl.textContent = p.name;
-      slot.append(iconElement('users'), nameEl);
-      if (p.isSelf) nameEl.addEventListener('click', () => startInlineEdit(nameEl, p.name, (v) => { if (v) callbacks.onRenameSelf(v); }));
-      else if (callbacks.onKick) {
-        slot.addEventListener('click', (e) => { if (e.ctrlKey) callbacks.onKick(p.id); });
-        // Where Ctrl-click means right-click (macOS) the browser sends contextmenu instead.
-        slot.addEventListener('contextmenu', (e) => { if (e.ctrlKey) { e.preventDefault(); callbacks.onKick(p.id); } });
-      }
-      presenceTile.append(slot);
-    }
-  }
-  // Collab and its presence tile are pinned at the top of the panel, above the scrolling file list.
+  // The Collab button is pinned at the top of the panel, above the scrolling file list.
   // `addRow` is a sibling of the scrollable `fileList`, not a child of its
   // stack, so it stays anchored above the panel footer instead of scrolling
   // away with a long file list.
-  container.append(goLiveBtn, ...(presenceTile ? [presenceTile] : []), fileList, addRow, buildCapacityMeter(project, callbacks), header);
+  container.append(goLiveBtn, fileList, addRow, buildCapacityMeter(project, callbacks), header);
   fileList.scrollTop = scrollTop;
 }
 

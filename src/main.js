@@ -840,7 +840,7 @@ async function endCollab() {
   redrawProjectPanel();
 }
 
-// Ctrl-click on a guest's icon or name in the presence tile. The token rotates, so the old link is
+// Ctrl-click on a guest's icon in the Collab button. The token rotates, so the old link is
 // dead: the host's clipboard gets the new one to re-invite with.
 function kickGuest(id) {
   if (collabSession?.getRole() !== 'host') return;
@@ -1353,9 +1353,8 @@ function redrawProjectPanel() {
     onSplitProject: () => splitProject(),
     onGoLive: () => toggleGoLive(),
     collabState: collabState(),
-    collabParticipants: () => collabSession?.getParticipants().sort((a, b) => (a.role === 'host' ? 0 : a.slot || 1) - (b.role === 'host' ? 0 : b.slot || 1)).map((p) => ({ ...p, color: presenceColor(p), isSelf: p.id === collabSession.getSelfId() })) || [],
+    collabParticipants: () => collabSession?.getParticipants().map((p) => ({ ...p, color: presenceColor(p), isSelf: p.id === collabSession.getSelfId() })) || [],
     onKick: kickGuest,
-    onRenameSelf: (name) => { uiPrefs.collabName = name; saveUiPrefs(uiPrefs); collabSession?.setName(name); },
     // Double click on New File: same size as whichever canvas was last worked
     // on, wherever it lives; the new-project default only if nothing was.
     onAddFileCurrent: () => {

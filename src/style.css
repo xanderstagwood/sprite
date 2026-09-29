@@ -388,16 +388,14 @@ h1, h2, .header-text {
   color: #fff;
   background: rgba(0, 0, 0, 0.7);
 }
-/* Presence: one tile under the Collab button, a slot per collaborator (host, guest 1, guest 2), users icon in their color then name. */
-.presence-tile { gap: var(--pad); padding: 0 var(--pad); }
-/* Sized to their names so host + two default-named guests fit the panel width; a long custom name is what ellipsizes. */
-.presence-slot { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--pad); }
-/* Guest 2's black cursor would vanish on the dark tile: outline it a pixel on every side. */
-.presence-slot .icon {
+/* Collab button: three user icons (host, guest 1, guest 2), dim until that slot is filled, then lit in the person's colour. */
+.collab-btn { display: flex; align-items: center; justify-content: center; gap: calc(var(--pad) * 3); }
+.collab-slot { display: flex; align-items: center; pointer-events: auto; }
+/* Slots must beat the generic button-icon colours (rest, hover, selected) above. The outline keeps a red host visible on the solid red live button and a black guest 2 visible on the dark one. */
+.btn.collab-btn .collab-slot.present .icon {
   background: var(--collab-color);
   filter: drop-shadow(var(--icon-px) 0 0 var(--text-faint)) drop-shadow(calc(var(--icon-px) * -1) 0 0 var(--text-faint)) drop-shadow(0 var(--icon-px) 0 var(--text-faint)) drop-shadow(0 calc(var(--icon-px) * -1) 0 var(--text-faint));
 }
-.presence-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 /* Invisible edge-hover zones that reveal a panel (§15). */
 .edge-trigger { position: absolute; z-index: var(--z-trigger); }
