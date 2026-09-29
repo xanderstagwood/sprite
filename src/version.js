@@ -2,7 +2,7 @@
 // No package.json/build step in this project (§3) to derive it from:
 // bump this by hand alongside CLAUDE.md's semver rules (v0.x.x: feat/fix
 // bump PATCH, a breaking change bumps MINOR, never auto-bump to 1.0.0).
-export const VERSION = '0.8.9';
+export const VERSION = '0.7.6';
 
 export const GITHUB_ISSUES_URL = 'https://github.com/xanderstagwood/sprite/issues/new?template=bug_report.yml';
 export const GITHUB_URL = 'https://github.com/xanderstagwood/sprite';
