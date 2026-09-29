@@ -86,7 +86,7 @@
      bottom: --pad is that clearance, sized so pad + line + pad lands
      exactly on --block, not a fraction chosen by feel. */
   --block: 1.5em;
-  --meter-h: 4px; /* project capacity meter; the add-file row shrinks by this */
+  --meter-h: 4px; /* project capacity meter; the collab button shrinks by this */
   --pad: 0.25em;
   --panel-width: 9em; /* every side panel is 6 blocks wide */
 
@@ -389,9 +389,10 @@ h1, h2, .header-text {
   background: rgba(0, 0, 0, 0.7);
 }
 /* Collab button: reads "Collab" until a session is up, then that fades out and three user icons (host, guest 1, guest 2)
-   fade in evenly spaced, dim until that slot is filled, then lit in the person's colour with their name beside them. Its
-   sides are spaced like the grab handle's dots on a canvas row: half of what a block has left around one pixel column. */
-.collab-btn { justify-content: flex-start; padding: 0 calc((var(--block) - var(--icon-px)) / 2); }
+   fade in evenly spaced, dim until that slot is filled, then lit in the person's colour with their name beside them. It
+   sits in the slot the meter leaves under the new canvas button, and its sides leave half of what a block has around one
+   pixel column: the room the fold arrow keeps to its right too. */
+.collab-btn { justify-content: flex-start; padding: 0 calc((var(--block) - var(--icon-px)) / 2); height: calc(var(--block) - var(--meter-h)); }
 .collab-label, .collab-slots { transition: opacity var(--dur-base) ease; }
 .collab-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .collab-slots { display: flex; width: 100%; min-width: 0; opacity: 0; }
@@ -930,12 +931,12 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
 .palette-row { display: flex; }
 
 /* ---- Project capacity meter: plain filled rectangle, no gradient ------ */
-/* The add-file row gives up the meter's height so the two together stay one
+/* The collab button gives up the meter's height so the two together stay one
    block tall, keeping the panel's footer on the grid. */
-/* The footer (add row, meter, header) keeps its size when the file list is longer than the panel: as flex items they would
+/* The footer (add row, collab button, meter, header) keeps its size when the file list is longer than the panel: as flex items they would
    otherwise all give up a share of the overflow, and the new canvas button ended up a few pixels tall. */
 #project-panel > :not(.file-list) { flex-shrink: 0; }
-.project-add-row { height: calc(var(--block) - var(--meter-h)); }
+.project-add-row { height: var(--block); }
 .project-add-row .btn { height: 100%; }
 .capacity-meter { height: var(--meter-h); background: var(--accent-dark); border-top: var(--border-width) solid var(--hairline); }
 /* min-width: a sliver is always lit, even at 0% load: purely for looks */

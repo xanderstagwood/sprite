@@ -259,7 +259,7 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
   // `addRow` is a sibling of the scrollable `fileList`, not a child of its
   // stack, so it stays anchored above the panel footer instead of scrolling
   // away with a long file list.
-  container.append(collab.btn, fileList, addRow, buildCapacityMeter(project, callbacks), header);
+  container.append(fileList, addRow, collab.btn, buildCapacityMeter(project, callbacks), header);
   collab.reveal();
   fileList.scrollTop = scrollTop;
 }
