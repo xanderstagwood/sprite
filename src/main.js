@@ -23,8 +23,8 @@ import {
 import { renderProjectPanel } from './project-panel.js';
 import { renderLayersPanel } from './layers-panel.js';
 import { renderTimelinePanel } from './timeline-panel.js';
-import { connectFolder } from './storage.js';
-import { chooseBackend, loadProject, saveProject, listProjects, deleteProject, deleteStoredFile, ensureLoaded, markUsed, unloadIdle, debounce, autosaveDelay } from './persistence.js';
+import { connectFolder, pendingFolder, encodeName } from './storage.js';
+import { chooseBackend, loadProject, saveProject, copyProject, removeOrphans, listProjects, deleteProject, deleteStoredFile, ensureLoaded, markUsed, unloadIdle, debounce, autosaveDelay } from './persistence.js';
 import { ensureAllFramesLoaded, ensureFrameLoaded, syncHotWindow, getCachedThumbnail } from './frame-cache.js';
 import * as frameSelection from './frame-selection.js';
 import { createSession } from './collab/session.js';
@@ -88,6 +88,7 @@ try {
   console.error('Storage backend unavailable, autosave disabled:', err);
   backend = { write: async () => {}, read: async () => null, delete: async () => {}, list: async () => [] };
 }
+const waitingFolder = pendingFolder(); // a chosen working folder the browser stopped letting us write to: see pickWorkDir
 const uiPrefs = await loadUiPrefs(backend);
 
 // First-run hints: one control at a time pulses, chosen by body[data-hint] (style.css). Steps only
@@ -572,6 +573,7 @@ function setActiveGroup(id) {
 // back to an in-memory no-op backend rather than taking the whole app down,
 // since losing autosave is much better than losing the app.
 let project;
+let unsavedProject = false; // a project made just now, not yet in storage, is the one thing that needs saving at startup
 try {
   // Reopen whichever project was open last time; failing that, whatever's
   // most recently touched in the registry; failing that (first-ever run),
@@ -585,14 +587,19 @@ try {
       project = await loadProject(backend, mostRecent.id);
     }
   }
-  if (!project) project = (await loadStarterProject()) || createProject('My Project');
+  if (!project) {
+    project = await loadStarterProject(); // saved as it is created
+    if (!project) { project = createProject('My Project'); unsavedProject = true; }
+  }
 } catch (err) {
   console.error('Storage backend unavailable, autosave disabled:', err);
   backend = { write: async () => {}, read: async () => null, delete: async () => {}, list: async () => [] };
   project = createProject('My Project');
 }
-uiPrefs.lastProjectId = project.id;
-saveUiPrefs(uiPrefs);
+if (uiPrefs.lastProjectId !== project.id) {
+  uiPrefs.lastProjectId = project.id;
+  saveUiPrefs(uiPrefs);
+}
 // Declared up here because autosave() (called at startup) consults them.
 let collabSession = null; // null outside a live session
 let localSession = null; // a guest's own { backend, project }, restored when the session ends
@@ -600,12 +607,28 @@ let localSession = null; // a guest's own { backend, project }, restored when th
 // rarer path: renames, moves, panel edits) sweeps them all, so a path that
 // forgets to name its File costs time, never data.
 const pendingFiles = new Set();
-let sweepAll = true;
+let sweepAll = false;
+let unsaved = false; // an edit has been announced (autosave) and no save has taken it yet
+// The folder icon lights up as an autosave writes: it snaps to bright and fades back to its dim (style.css).
+function flashSaveIcon() {
+  const icon = projectPanel.querySelector('.project-icon');
+  if (!icon) return;
+  icon.classList.remove('saving');
+  void icon.offsetWidth; // restarts the animation if the last save is still fading
+  icon.classList.add('saving');
+}
+// A save that fails is not silent: the edits are only in memory until one succeeds.
+function saveFailed(err) {
+  console.error('Autosave failed:', err);
+  unsaved = true;
+  flashTip(err.name === 'NotAllowedError' ? 'Not saved: folder access lost' : 'Not saved', { urgent: true, ms: 6000 });
+}
 const flushAutosave = debounce(() => {
   const only = sweepAll ? undefined : [...pendingFiles];
   pendingFiles.clear();
   sweepAll = false;
-  saveProject(backend, project, only).catch((err) => console.error('Autosave failed:', err));
+  unsaved = false;
+  saveProject(backend, project, only).then((wrote) => { if (wrote) flashSaveIcon(); }, saveFailed);
 }, () => {
   const file = getActiveFile(project);
   return autosaveDelay(file.canvasWidth * file.canvasHeight);
@@ -615,9 +638,10 @@ function autosave(file) {
   if (backend.kind === 'remote') return; // a guest's edits reach the host as strokes, never as saves
   if (file) pendingFiles.add(file);
   else sweepAll = true;
+  unsaved = true;
   flushAutosave();
 }
-autosave();
+if (unsavedProject) autosave();
 
 // Memory follows what's open: a File nobody has used for a minute (and that
 // isn't one of the few most recent) drops its pixels; they reload from
@@ -631,7 +655,7 @@ setInterval(() => {
 // The debounce can be several seconds on a large canvas, so flush right
 // away when the tab is hidden or closed rather than lose the last edits.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden' && backend.kind !== 'remote') saveProject(backend, project).catch((err) => console.error('Autosave failed:', err));
+  if (document.visibilityState === 'hidden' && unsaved && backend.kind !== 'remote') { unsaved = false; saveProject(backend, project).catch(saveFailed); }
 });
 
 // `model` is a stable view object; switching files/layers/frames re-points
@@ -1429,7 +1453,7 @@ function redrawProjectPanel() {
     },
     onAddCollection: () => { addCollection(project); redrawProjectPanel(); autosave(); },
     onOpenProject: (anchor) => openProjectPicker(anchor),
-    workDirName: backend.name,
+    workDirName: backend.name ?? (waitingFolder && `Reconnect: ${waitingFolder.name}`),
     onReadBackupWarning: () => setHint('menu'),
     onPickWorkDir: window.showDirectoryPicker && pickWorkDir,
   }, focusedCollectionId(), activeGroupId, fileSelection);
@@ -1440,6 +1464,10 @@ function redrawProjectPanel() {
 async function pickWorkDir() {
   setHint('menu');
   try {
+    if (waitingFolder) { // the folder is already chosen: this click is the gesture that lets the browser ask again
+      if (await waitingFolder.grant()) location.reload(); else flashTip('Folder access denied');
+      return;
+    }
     await saveProject(backend, project);
     if (!await connectFolder()) return;
   } catch (err) {
@@ -1749,25 +1777,31 @@ function projectFromArchive(bytes) {
     return data;
   }
   const entries = unzipSync(bytes);
-  const decode = (name) => JSON.parse(new TextDecoder().decode(entries[name]));
+  // Entries are named the OS-safe way (storage.js encodeName); archives made before that used the plain names.
+  const entry = (name) => entries[encodeName(name)] ?? entries[name];
+  const decode = (name) => JSON.parse(new TextDecoder().decode(entry(name)));
   const meta = decode('project.json');
   return {
     name: meta.name, palette: meta.palette, activeFileIndex: meta.activeFileIndex,
-    collections: meta.collections, files: meta.fileNames.map((name) => parseFile(decode(`${name}.sprite`), (kind, id) => entries[kind === 'chunk' ? `${name}.sprite.${id}` : kind === 'frame' ? `${name}.sprite.frame-${id}` : `${name}.sprite.bin`] ?? null)),
+    collections: meta.collections, files: meta.fileNames.map((name) => parseFile(decode(`${name}.sprite`), (kind, id) => entry(kind === 'chunk' ? `${name}.sprite.${id}` : kind === 'frame' ? `${name}.sprite.frame-${id}` : `${name}.sprite.bin`) ?? null)),
   };
 }
 
 // First run: the project that ships with the app (starter/), saved as the user's own copy.
 // Null if it cannot be fetched or read, and the caller starts an empty project instead.
+let starterFailed = false; // said out loud once the interface is up
 async function loadStarterProject() {
+  let starter;
   try {
     const res = await fetch('starter/sprite-ui.sprite');
     if (!res.ok) return null;
-    const starter = { ...projectFromArchive(new Uint8Array(await res.arrayBuffer())), id: crypto.randomUUID(), name: 'Sprite UI' };
+    starter = { ...projectFromArchive(new Uint8Array(await res.arrayBuffer())), id: crypto.randomUUID(), name: 'Sprite UI' };
     await saveProject(backend, starter);
     return await loadProject(backend, starter.id);
   } catch (err) {
     console.error('Could not load the starter project:', err);
+    starterFailed = true;
+    if (starter) await deleteProject(backend, starter.id).catch(() => {}); // what was written before it failed is not a project
     return null;
   }
 }

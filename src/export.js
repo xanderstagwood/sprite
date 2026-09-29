@@ -1,5 +1,6 @@
 import { encodeFile } from './sprite-format.js';
 import { loadTemporarily } from './persistence.js';
+import { encodeName } from './storage.js';
 import { zipSync } from 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
 import { GIFEncoder, quantize, applyPalette } from 'https://cdn.jsdelivr.net/npm/gifenc@1.0.3/dist/gifenc.esm.js';
 import { encodeGifStream, GifTooLargeError } from './gif-index.js';
@@ -91,10 +92,10 @@ const gifenc = { GIFEncoder, quantize, applyPalette };
 // one shared palette per Project) rides along inside project.json, same as
 // it already does in storage.
 async function projectArchive(project, onProgress) {
-  // `<name>.sprite` paths deliberately unsanitized here: same convention
-  // persistence.js's own storage already uses for these exact files
-  // (`fileName + '.sprite'`, storage.js), so `fileNames` in project.json
-  // and each entry's own path always agree on import, byte for byte.
+  // Entry names are the same OS-safe names the working folder uses (storage.js
+  // encodeName), so the archive unzips cleanly on any system whatever a canvas is
+  // called; `fileNames` in project.json keeps the real names, and import reads
+  // the entries back through the same encoding.
   const encoder = new TextEncoder();
   const files = {
     'project.json': encoder.encode(JSON.stringify({
@@ -106,8 +107,8 @@ async function projectArchive(project, onProgress) {
     const release = await loadTemporarily(file);
     const { meta, chunks } = encodeFile(file);
     delete meta.references; // reference images never leave the app
-    files[`${file.name}.sprite`] = encoder.encode(JSON.stringify(meta));
-    for (const chunk of chunks) files[`${file.name}.sprite.${chunk.name}`] = chunk.bytes();
+    files[encodeName(`${file.name}.sprite`)] = encoder.encode(JSON.stringify(meta));
+    for (const chunk of chunks) files[encodeName(`${file.name}.sprite.${chunk.name}`)] = chunk.bytes();
     release();
     onProgress((i + 1) / project.files.length * 0.8);
   }

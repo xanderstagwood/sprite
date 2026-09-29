@@ -51,6 +51,7 @@ async function touchRegistry(backend, project) {
 export async function loadProject(backend, projectId) {
   const meta = await backend.read([projectId, 'project.json']);
   if (!meta) return null;
+  const storedJson = JSON.stringify(meta); // as saved, before anything below fills in what an older save lacked
   const files = [];
   for (const fileName of meta.fileNames) {
     const raw = await backend.read([projectId, fileName]);
@@ -102,8 +103,20 @@ export async function loadProject(backend, projectId) {
     if (file._stub) lastWritten.set(file, { path: `${projectId}/${file.name}`, json: JSON.stringify(encodeStubMeta(file)), chunkSigs: new Map() });
     else if (!lastWritten.has(file)) lastWritten.set(file, snapshotOf(projectId, file, encodeFile(file)));
   });
-  return { id: projectId, name: meta.name, palette: meta.palette, activeFileIndex: meta.activeFileIndex, collections, files };
+  const project = { id: projectId, name: meta.name, palette: meta.palette, activeFileIndex: meta.activeFileIndex, collections, files };
+  // Same for project.json (and, by way of it, the registry): a project that is only opened writes nothing.
+  // One whose saved JSON lacked something filled in above differs from it, and is written once.
+  lastProjectJson.set(project, storedJson);
+  return project;
 }
+
+const projectJsonOf = (project) => ({
+  name: project.name,
+  palette: project.palette,
+  activeFileIndex: project.activeFileIndex,
+  collections: project.collections,
+  fileNames: project.files.map((f) => f.name + '.sprite'),
+});
 
 // Reads a File's chunks (every layer buffer's for v4, every Frame's for v3,
 // the single sidecar for v2, nothing for v1) and decodes them. Chunks are
@@ -224,9 +237,42 @@ export async function unloadIdle(backend, project, inUse, { keep = 3, idleMs = 6
 // registry. No undo: this is a hard delete, same as every other
 // delete/remove button in the app (file, collection, layer, group), none
 // of which confirm either.
-export async function deleteProject(backend, projectId) {
+// Removes a project's whole folder: its files, then the folder itself, so a failed
+// or abandoned save leaves nothing on the disk.
+async function removeProjectFolder(backend, projectId) {
   const names = await backend.list([projectId]);
   await Promise.all(names.map((name) => backend.delete([projectId, name])));
+  await backend.removeDir?.([projectId]);
+}
+
+const PROJECT_FOLDER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Project folders in the working directory that no project owns: what a save that
+ * failed half way, or an import that was abandoned, leaves behind. `keep` names
+ * ids to leave alone (the project that is open). Only folders named like a
+ * project id count; anything else in the directory is never touched. With
+ * `olderThan` (ms), a folder written to more recently than that is left too: it may
+ * be a save or import still running in another tab, which registers its project last.
+ */
+export async function findOrphans(backend, keep = [], { olderThan = 0 } = {}) {
+  const owned = new Set([...(await listProjects(backend)).map((entry) => entry.id), ...keep]);
+  const orphans = (await backend.list([])).filter((name) => PROJECT_FOLDER.test(name) && !owned.has(name));
+  if (!olderThan || !backend.newestChange) return orphans;
+  const now = Date.now();
+  const settled = await Promise.all(orphans.map(async (id) => now - (await backend.newestChange([id])) >= olderThan));
+  return orphans.filter((_, i) => settled[i]);
+}
+
+/** Removes what `findOrphans` finds; resolves to how many folders went. */
+export async function removeOrphans(backend, keep = [], options) {
+  const orphans = await findOrphans(backend, keep, options);
+  for (const id of orphans) await removeProjectFolder(backend, id);
+  return orphans.length;
+}
+
+export async function deleteProject(backend, projectId) {
+  await removeProjectFolder(backend, projectId);
   const registry = await listProjects(backend);
   await backend.write(REGISTRY_PATH, registry.filter((entry) => entry.id !== projectId));
 }
@@ -313,15 +359,10 @@ export async function deleteStoredFile(backend, projectId, file) {
 }
 
 // `files` narrows the write to Files known to have changed (project.json is
-// always checked); omitted, every File is checked.
-export async function saveProject(backend, project, files = project.files) {
-  const projectJson = {
-    name: project.name,
-    palette: project.palette,
-    activeFileIndex: project.activeFileIndex,
-    collections: project.collections,
-    fileNames: project.files.map((f) => f.name + '.sprite'),
-  };
+// always checked); omitted, every File is checked. Resolves to whether anything
+// was written. `onProgress(fraction)` is told as each file finishes.
+export async function saveProject(backend, project, files = project.files, onProgress) {
+  const projectJson = projectJsonOf(project);
   const serialized = JSON.stringify(projectJson);
   let wrote = false;
   if (lastProjectJson.get(project) !== serialized) {
@@ -329,6 +370,32 @@ export async function saveProject(backend, project, files = project.files) {
     lastProjectJson.set(project, serialized);
     wrote = true;
   }
-  const results = await Promise.all(files.map((file) => writeFile(backend, project.id, file)));
-  if (wrote || results.includes(true)) await touchRegistry(backend, project);
+  let done = 0;
+  const results = await Promise.all(files.map(async (file) => {
+    const wroteFile = await writeFile(backend, project.id, file);
+    onProgress?.(++done / files.length);
+    return wroteFile;
+  }));
+  const changed = wrote || results.includes(true);
+  if (changed) await touchRegistry(backend, project);
+  return changed;
+}
+
+// Writes the whole project into another backend (a newly chosen working folder),
+// every file and chunk whether or not it changed: nothing there has it yet. The
+// project keeps its id, so it opens in the new place as the same project. Files
+// that were stubs are read only for as long as it takes, then put back.
+export async function copyProject(target, project) {
+  for (const file of project.files) {
+    const release = await loadTemporarily(file);
+    const enc = encodeFile(file);
+    for (const chunk of enc.chunks) {
+      const bytes = chunk.bytes();
+      await target.write([project.id, `${file.name}.sprite.${chunk.name}`], chunk.deflated ? bytes : await deflate(bytes));
+    }
+    await target.write([project.id, file.name + '.sprite'], enc.meta);
+    release();
+  }
+  await target.write([project.id, 'project.json'], projectJsonOf(project));
+  await touchRegistry(target, project);
 }
