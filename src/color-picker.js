@@ -5,6 +5,7 @@
 // not a floating dropdown: this slides up from the chip rather than
 // appearing as a fixed popup.
 import { openCustomSlideOut } from './slide-out.js';
+import { normalizeHex } from './canvas-model.js';
 
 const SIZE = 120;
 
@@ -89,8 +90,12 @@ export function openColorPicker(anchorEl, initialHex, onChange) {
     }
   }
 
-  function commit(hex) {
-    hexField.value = hex;
+  let lastHex = initialHex;
+  // `fromField`: the hex came from the field itself, so leave its text alone
+  // (rewriting what someone is mid-typing would fight them).
+  function commit(hex, fromField = false) {
+    lastHex = hex;
+    if (!fromField) hexField.value = hex;
     onChange(hex);
   }
 
@@ -120,14 +125,25 @@ export function openColorPicker(anchorEl, initialHex, onChange) {
     commit(hslToHex(h, s, l));
   });
 
+  // Sets the picker and the chip from a complete hex code.
+  function applyHex(hex, fromField) {
+    ({ h, s, l } = hexToHsl(hex));
+    hue.value = h;
+    paintSquare();
+    commit(hex, fromField);
+  }
+
+  // Live: every keystroke or paste that completes a code recolors the chip.
+  hexField.addEventListener('input', () => {
+    const hex = normalizeHex(hexField.value);
+    if (hex) applyHex(hex, true);
+  });
+
+  // On leaving the field, accept shorthand and tidy the text, or put back the last good color.
   hexField.addEventListener('change', () => {
-    const v = hexField.value.trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-      ({ h, s, l } = hexToHsl(v));
-      hue.value = h;
-      paintSquare();
-      commit(v);
-    }
+    const hex = normalizeHex(hexField.value, true);
+    if (hex) applyHex(hex, false);
+    else hexField.value = lastHex;
   });
 
   // Colors-panel keyboard scheme: arrows nudge s/l, Alt+Left/Right nudge
@@ -139,6 +155,9 @@ export function openColorPicker(anchorEl, initialHex, onChange) {
   // arrow keys after the popup's already gone.
   const STEP = 0.03;
   function onKeyDown(e) {
+    const inField = e.target === hexField;
+    // In the hex field the arrows move the caret; they only nudge the color elsewhere.
+    if (inField && e.key.startsWith('Arrow')) return;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       e.stopPropagation(); // capture phase: keep main.js's canvas-cursor arrow handling from also firing
@@ -156,6 +175,10 @@ export function openColorPicker(anchorEl, initialHex, onChange) {
     } else if (e.key === 'Enter' || e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
+      if (inField && e.key === 'Enter') {
+        const hex = normalizeHex(hexField.value, true); // Enter closes before `change` would fire, so apply shorthand here
+        if (hex) applyHex(hex, false);
+      }
       window.removeEventListener('keydown', onKeyDown, true);
       close();
     }

@@ -173,6 +173,17 @@ export function applyDiff(model, side) {
   }
 }
 
+// A typed or pasted hex code as `#RRGGBB`, or null while it isn't a complete
+// one. `#` is optional. 3-digit shorthand is accepted only on request, so a
+// live-updating field doesn't flash #AABBCC on the way to typing #AABBCD.
+export function normalizeHex(text, allowShorthand = false) {
+  if (typeof text !== 'string') return null;
+  const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(text.trim());
+  if (!m || (m[1].length === 3 && !allowShorthand)) return null;
+  const digits = m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1];
+  return '#' + digits.toUpperCase();
+}
+
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
