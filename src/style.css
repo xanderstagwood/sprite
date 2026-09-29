@@ -376,9 +376,21 @@ h1, h2, .header-text {
   position: absolute;
   z-index: var(--z-trigger);
   pointer-events: none;
-  outline: 1px solid #fff;
+  outline: 2px solid var(--collab-color, #fff);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
 }
+.collab-cursor > span {
+  position: absolute;
+  left: 100%;
+  top: 100%;
+  padding: 0 4px;
+  white-space: nowrap;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.7);
+}
+/* Presence rows under Go Live: one per participant, color chip then name. */
+.presence-row .presence-chip { flex: 0 0 var(--block); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6); background: var(--collab-color); }
+.presence-row .presence-name { flex: 1 1 auto; display: flex; align-items: center; padding: 0 var(--pad, 8px); overflow: hidden; white-space: nowrap; }
 
 /* Invisible edge-hover zones that reveal a panel (§15). */
 .edge-trigger { position: absolute; z-index: var(--z-trigger); }

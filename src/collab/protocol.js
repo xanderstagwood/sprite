@@ -3,6 +3,7 @@ export const MSG = {
   CURSOR: 'cursor',
   STROKE: 'stroke',
   PROJECT: 'project', // host -> joiner: which project id to load over READ_REQ
+  FULL: 'session-full', // host -> a would-be third guest, sent by session.js itself
   RESYNC: 'resync', // host -> guests: structure changed, reload the project
   READ_REQ: 'read-req',
   READ_RES: 'read-res',

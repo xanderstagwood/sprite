@@ -12,7 +12,7 @@ const PREFS_PATH = ['.prefs'];
 const WRITE_DELAY_MS = 500;
 const DEFAULTS = {
   project: false, layers: false, timeline: false, palette: true, // panel pin state (§7.2 flagged assumption 3: palette starts pinned)
-  showGrid: true, showRuler: false, dither: false, symmetry: 'off', tagsHidden: false, canvasBg: 'white', appBg: 'white', lastProjectId: null,
+  showGrid: true, showRuler: false, dither: false, symmetry: 'off', tagsHidden: false, canvasBg: 'white', appBg: 'white', lastProjectId: null, collabName: null, // collabName: display name shown to collaborators (collab/presence.js)
   // The group grid (§ project panel group select) has no canvas background
   // of its own (every artboard is always transparent): just its own `U`
   // backdrop, separate from the single-file canvas's above.

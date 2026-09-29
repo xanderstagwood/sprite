@@ -80,11 +80,11 @@ export function createStrokeSync({ session, resolveTarget, requestRender }) {
   });
 
   return {
-    // Call with whatever command history.commit just committed locally;
-    // only pixel-edit diffs are streamable, anything else (layer/resize
-    // snapshots) is silently skipped here.
+    // Call with whatever command history.commit just committed locally (or
+    // an undo/redo's side as a bare {after}). Every command but the layer/
+    // resize snapshots is a plain pixel diff, so it streams the same way.
     sendStroke(command, { fileId, frame, layer, colors }) {
-      if (command.type !== 'pixelEdit' || !command.after?.length) return;
+      if (command.type === 'layers' || command.type === 'resize' || !command.after?.length) return;
       const used = {};
       for (let k = 1; k < command.after.length; k += 2) {
         const c = command.after[k];

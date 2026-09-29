@@ -29,6 +29,8 @@ import { ensureAllFramesLoaded, ensureFrameLoaded, syncHotWindow, getCachedThumb
 import * as frameSelection from './frame-selection.js';
 import { createSession } from './collab/session.js';
 import { makeJoinLink, parseJoinCode, MSG } from './collab/protocol.js';
+import { presenceColor } from './collab/presence.js';
+import { targetFps } from './collab/throttle.js';
 import { createStrokeSync } from './collab/stroke-sync.js';
 import { createRemoteHostBackend, serveReads } from './collab/remote-host-backend.js';
 import { createRevealablePanel } from './panel-reveal.js';
@@ -741,7 +743,17 @@ const playback = { fps: 8, onionSkin: false, onionLayerOnly: false, playing: fal
 let strokeSync = null; // §phase 2: live pixel sync, created alongside collabSession
 const remoteCursors = new Map(); // participant id -> { x, y, name }
 let lastCursorSendAt = 0;
-const CURSOR_SEND_INTERVAL_MS = 100; // fixed ~10fps for phase 1; Phase 4 makes this adaptive
+let cursorIntervalMs = 100; // re-derived once a second from the link's health (collab/throttle.js)
+let frameMsAvg = 16; // smoothed rAF delta: a struggling tab is one of the throttle's signals
+let lastFrameAt = 0;
+let throttleTimer = null;
+
+function startThrottle() {
+  throttleTimer = setInterval(async () => {
+    const link = await collabSession?.sample();
+    if (link) cursorIntervalMs = 1000 / targetFps({ ...link, frameMs: frameMsAvg });
+  }, 1000);
+}
 
 function collabButtonLabel() {
   if (!collabSession) return 'Go Live';
@@ -797,6 +809,8 @@ async function reloadFromHost() {
 async function endCollab() {
   collabSession?.leave();
   collabSession = null;
+  clearInterval(throttleTimer);
+  cursorIntervalMs = 100;
   strokeSync = null;
   remoteCursors.clear();
   if (localSession) {
@@ -814,6 +828,8 @@ async function toggleGoLive() {
   collabSession = createSession();
   strokeSync = createStrokeSync({ session: collabSession, resolveTarget: resolveStrokeTarget, requestRender: (target) => { if (target?.file) autosave(target.file); draw(); } });
   collabSession.onMessage(MSG.CURSOR, (payload, fromId) => { remoteCursors.set(fromId, payload); needsRender = true; });
+  collabSession.onMessage('roster', redrawProjectPanel);
+  collabSession.onMessage(MSG.FULL, () => { console.warn('Session is full'); endCollab(); });
   collabSession.onMessage('participant-left', ({ id }) => {
     remoteCursors.delete(id);
     if (collabSession?.getRole() === 'guest') endCollab(); // a guest's only connection is the host: it's gone, so the session is over
@@ -834,17 +850,21 @@ async function toggleGoLive() {
       });
       collabSession.onMessage(MSG.RESYNC, (_, fromId) => { if (fromId === code && localSession) reloadFromHost(); });
       await collabSession.join(code);
+      if (uiPrefs.collabName) collabSession.setName(uiPrefs.collabName);
     } else {
       const hostBackend = backend;
       serveReads(collabSession, hostBackend, () => project.id, { beforeRead: flushForGuests(hostBackend) });
       collabSession.onMessage('participant-joined', ({ id }) => collabSession.sendTo(id, MSG.PROJECT, { id: project.id }));
       const hostId = await collabSession.host();
+      if (uiPrefs.collabName) collabSession.setName(uiPrefs.collabName);
       await navigator.clipboard.writeText(makeJoinLink(hostId));
     }
   } catch (err) {
     console.error('Collab session failed to start', err);
     await endCollab();
+    return;
   }
+  startThrottle();
   redrawProjectPanel();
 }
 
@@ -925,7 +945,7 @@ const history = {
     autosave(file);
     draw();
     strokeSync?.sendStroke(cmd, { fileId: file.name, frame: file.activeFrameIndex, layer: file.activeLayerIndex, colors: file.colors });
-    if (cmd.type !== 'pixelEdit') structureChanged();
+    if (cmd.type === 'layers' || cmd.type === 'resize') structureChanged();
   },
 };
 
@@ -943,10 +963,15 @@ async function stepHistory(step) {
   // accessor). Pixel-diff commands only touch the always-raw active frame,
   // so this is a no-op for those.
   await ensureAllFramesLoaded(file);
+  // Peeked before the step pops it: an undo/redo changes this copy only, so
+  // what it did has to be streamed like any other edit.
+  const cmd = (step === undoCmd ? file.undoStack : file.redoStack).at(-1);
   if (!step(file, model)) return;
+  if (cmd.type === 'layers' || cmd.type === 'resize') structureChanged();
+  else strokeSync?.sendStroke({ type: cmd.type, after: step === undoCmd ? cmd.before : cmd.after }, { fileId: file.name, frame: file.activeFrameIndex, layer: file.activeLayerIndex, colors: file.colors });
   bindActiveFile();
   if (model.width !== width || model.height !== height) { resetView(); selectionApi.clear(); redrawProjectPanel(); }
-  draw(); autosave();
+  draw(); autosave(file);
 }
 
 // A resize is one undo step. Undoing it hands back the old buffers, so older
@@ -1174,9 +1199,14 @@ function draw() {
       renderCanvas();
     }
   }
+  if (collabSession) {
+    const t = performance.now();
+    if (lastFrameAt) frameMsAvg += ((t - lastFrameAt) - frameMsAvg) * 0.1;
+    lastFrameAt = t;
+  }
   if (collabSession && hoverPixel) {
     const now = performance.now();
-    if (now - lastCursorSendAt >= CURSOR_SEND_INTERVAL_MS) {
+    if (now - lastCursorSendAt >= cursorIntervalMs) {
       lastCursorSendAt = now;
       collabSession.send(MSG.CURSOR, { x: hoverPixel.x, y: hoverPixel.y });
     }
@@ -1185,12 +1215,10 @@ function draw() {
   requestAnimationFrame(animateCursor);
 })();
 
-// Phase 1's whole presence UI: one absolutely-positioned box + label per
-// remote cursor, laid over the canvas element. DOM rather than a renderer.js
-// draw call (renderer.js's draw object doesn't know about collab, and this
-// is exactly the kind of thing HTML already does well - a positioned div
-// with text). Phase 4 replaces the placeholder color/name with the real
-// per-participant ones from presence.js.
+// One absolutely-positioned box + name label per remote cursor, laid over
+// the canvas element, in that participant's presence.js color. DOM rather
+// than a renderer.js draw call (renderer.js's draw object doesn't know about
+// collab, and a positioned div with text is what HTML already does well).
 const collabCursorEls = new Map(); // participant id -> element
 function updateRemoteCursorOverlay() {
   const rect = canvas.getBoundingClientRect();
@@ -1202,9 +1230,12 @@ function updateRemoteCursorOverlay() {
     if (!el) {
       el = document.createElement('div');
       el.className = 'collab-cursor';
+      el.append(document.createElement('span'));
       canvas.parentElement.append(el);
       collabCursorEls.set(id, el);
     }
+    const who = collabSession.getParticipants().find((p) => p.id === id);
+    if (who) { el.style.setProperty('--collab-color', presenceColor(who)); el.firstChild.textContent = who.name; }
     el.style.left = `${viewport.ox + pos.x * viewport.scale}px`;
     el.style.top = `${viewport.oy + pos.y * viewport.scale}px`;
     el.style.width = `${Math.max(viewport.scale, 1)}px`;
@@ -1293,6 +1324,8 @@ function redrawProjectPanel() {
     onSplitProject: () => splitProject(),
     onGoLive: () => toggleGoLive(),
     collabLabel: collabButtonLabel(),
+    collabParticipants: () => collabSession?.getParticipants().map((p) => ({ ...p, color: presenceColor(p), isSelf: p.id === collabSession.getSelfId() })) || [],
+    onRenameSelf: (name) => { uiPrefs.collabName = name; saveUiPrefs(uiPrefs); collabSession?.setName(name); },
     // Double click on New File: same size as whichever canvas was last worked
     // on, wherever it lives; the new-project default only if nothing was.
     onAddFileCurrent: () => {

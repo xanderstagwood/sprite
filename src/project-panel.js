@@ -219,7 +219,21 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
   // `addRow` is a sibling of the scrollable `fileList`, not a child of its
   // stack, so it stays anchored above the panel footer instead of scrolling
   // away with a long file list.
-  container.append(fileList, addRow, buildCapacityMeter(project, callbacks), header, goLiveBtn);
+  // One row per collaborator under Go Live; the local one is click-to-rename.
+  const presenceRows = (callbacks.collabParticipants?.() || []).map((p) => {
+    const row = document.createElement('div');
+    row.className = 'tile presence-row';
+    row.style.setProperty('--collab-color', p.color);
+    const chip = document.createElement('div');
+    chip.className = 'presence-chip';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'presence-name';
+    nameEl.textContent = p.name;
+    if (p.isSelf) nameEl.addEventListener('click', () => startInlineEdit(nameEl, p.name, (v) => { if (v) callbacks.onRenameSelf(v); }));
+    row.append(chip, nameEl);
+    return row;
+  });
+  container.append(fileList, addRow, buildCapacityMeter(project, callbacks), header, goLiveBtn, ...presenceRows);
   fileList.scrollTop = scrollTop;
 }
 
