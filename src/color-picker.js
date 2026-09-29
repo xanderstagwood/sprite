@@ -5,7 +5,7 @@
 // not a floating dropdown: this slides up from the chip rather than
 // appearing as a fixed popup.
 import { openCustomSlideOut } from './slide-out.js';
-import { normalizeHex } from './canvas-model.js';
+import { normalizeHex, fitHex } from './canvas-model.js';
 
 const SIZE = 120;
 
@@ -38,6 +38,9 @@ function hslToHex(h, s, l) {
   return '#' + to255(r) + to255(g) + to255(b);
 }
 
+// What the hex field shows for a color: the digits alone, lowercase.
+const fieldDigits = (hex) => hex.slice(1).toLowerCase();
+
 export function openColorPicker(anchorEl, initialHex, onChange) {
   let { h, s, l } = hexToHsl(initialHex);
 
@@ -53,10 +56,14 @@ export function openColorPicker(anchorEl, initialHex, onChange) {
   hue.value = h;
   hue.className = 'picker-hue';
 
+  // The "#" is a fixed label: the field itself holds only the six digits.
+  const hexRow = document.createElement('label');
+  hexRow.className = 'picker-hex-row';
   const hexField = document.createElement('input');
   hexField.type = 'text';
   hexField.className = 'picker-hex';
-  hexField.value = initialHex;
+  hexField.value = fieldDigits(initialHex);
+  hexRow.append('#', hexField);
 
   // Slides out flush above the chip (the palette bar docks to the bottom
   // edge), centered horizontally on it with the chevron pointing down at it
@@ -65,7 +72,7 @@ export function openColorPicker(anchorEl, initialHex, onChange) {
   // so that's overridden right after appending.
   const result = openCustomSlideOut(anchorEl, (popup) => {
     popup.className += ' color-picker-popup';
-    popup.append(square, hue, hexField);
+    popup.append(square, hue, hexRow);
   }, { side: 'up', onDismiss: () => window.removeEventListener('keydown', onKeyDown, true) });
   if (!result) return null; // toggled closed (second click on the same chip)
   const { el: popup, close } = result;
@@ -91,11 +98,12 @@ export function openColorPicker(anchorEl, initialHex, onChange) {
   }
 
   let lastHex = initialHex;
+  let fieldText = hexField.value; // the field's text before the current edit, for fitHex
   // `fromField`: the hex came from the field itself, so leave its text alone
   // (rewriting what someone is mid-typing would fight them).
   function commit(hex, fromField = false) {
     lastHex = hex;
-    if (!fromField) hexField.value = hex;
+    if (!fromField) fieldText = hexField.value = fieldDigits(hex);
     onChange(hex);
   }
 
@@ -135,6 +143,9 @@ export function openColorPicker(anchorEl, initialHex, onChange) {
 
   // Live: every keystroke or paste that completes a code recolors the chip.
   hexField.addEventListener('input', () => {
+    const fit = fitHex(fieldText, hexField.value);
+    fieldText = hexField.value = fit.value.toLowerCase(); // same length, so the caret still fits
+    hexField.setSelectionRange(fit.caret, fit.caret);
     const hex = normalizeHex(hexField.value);
     if (hex) applyHex(hex, true);
   });
@@ -143,7 +154,7 @@ export function openColorPicker(anchorEl, initialHex, onChange) {
   hexField.addEventListener('change', () => {
     const hex = normalizeHex(hexField.value, true);
     if (hex) applyHex(hex, false);
-    else hexField.value = lastHex;
+    else fieldText = hexField.value = fieldDigits(lastHex);
   });
 
   // Colors-panel keyboard scheme: arrows nudge s/l, Alt+Left/Right nudge

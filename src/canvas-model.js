@@ -184,6 +184,30 @@ export function normalizeHex(text, allowShorthand = false) {
   return '#' + digits.toUpperCase();
 }
 
+// The hex field shows six digits after a fixed "#". `prev` is its text before
+// an edit and `next` after: whatever the edit inserted is kept and old digits
+// give way to make room (after the insertion from the end, then before it from
+// the beginning); only a paste longer than six digits loses its own tail.
+export function fitHex(prev, next, size = 6) {
+  const room = Math.min(prev.length, next.length);
+  let a = 0;
+  while (a < room && prev[a] === next[a]) a++;
+  let z = 0;
+  while (z < room - a && prev[prev.length - 1 - z] === next[next.length - 1 - z]) z++;
+  let head = next.slice(0, a);
+  let ins = next.slice(a, next.length - z).replace(/[#\s]/g, '');
+  let tail = next.slice(next.length - z);
+  let over = head.length + ins.length + tail.length - size;
+  const cut = Math.max(0, Math.min(over, tail.length));
+  tail = tail.slice(0, tail.length - cut);
+  over -= cut;
+  const drop = Math.max(0, Math.min(over, head.length));
+  head = head.slice(drop);
+  over -= drop;
+  if (over > 0) ins = ins.slice(0, ins.length - over);
+  return { value: head + ins + tail, caret: head.length + ins.length };
+}
+
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };

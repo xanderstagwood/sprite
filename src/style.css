@@ -887,6 +887,17 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
   border: var(--border-width) solid var(--black);
 }
 
+.picker-hex-row {
+  display: flex;
+  align-items: center;
+  padding-left: var(--space-4);
+  background: var(--bg-base);
+  border: var(--border-width) solid var(--border-strong);
+  color: var(--text-secondary);
+  font-size: var(--font-body);
+}
+.picker-hex-row .picker-hex { border: 0; outline: none; padding-left: 0; flex: 1; min-width: 0; }
+
 .picker-hex {
   background: var(--bg-base);
   border: var(--border-width) solid var(--border-strong);
