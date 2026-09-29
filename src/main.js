@@ -553,8 +553,8 @@ const flushAutosave = debounce(() => {
   return autosaveDelay(file.canvasWidth * file.canvasHeight);
 });
 function autosave(file) {
+  if (!file) structureChanged(); // a bare call is a structural edit (rename, move, frame change, panel edit)
   if (backend.kind === 'remote') return; // a guest's edits reach the host as strokes, never as saves
-  if (!file) structureChanged(); // a bare call is a structural edit (rename, move, panel edit)
   if (file) pendingFiles.add(file);
   else sweepAll = true;
   flushAutosave();
@@ -766,6 +766,7 @@ function collabButtonLabel() {
 // first opened, so nothing is lost by skipping it), and a promise for a
 // frame the in-memory cache has compressed (frame-cache.js).
 function resolveStrokeTarget({ fileId, frame, layer }) {
+  if (reloading) return reloading.then(() => resolveStrokeTarget({ fileId, frame, layer }));
   const file = project.files.find((f) => f.name === fileId);
   if (!file || file._stub || !Number.isInteger(frame) || !Number.isInteger(layer) || !file.frames[frame]) return null;
   const toTarget = () => {
@@ -791,10 +792,22 @@ const announceResync = debounce(() => collabSession?.send(MSG.RESYNC, {}), 500);
 function structureChanged() {
   const role = collabSession?.getRole();
   if (role === 'host') announceResync();
-  else if (role === 'guest' && localSession) reloadFromHost();
+  else if (role === 'guest' && backend.kind === 'remote') reloadFromHost();
 }
 
-async function reloadFromHost() {
+// Strokes that arrive mid-reload wait for it (resolveStrokeTarget) and then
+// apply to the fresh project: a diff is absolute pixel values, so replaying
+// one the host's saved copy already contains changes nothing. Reloads
+// queue, so a second RESYNC never overlaps the first.
+let reloading = null;
+function reloadFromHost() {
+  const run = (reloading || Promise.resolve()).then(doReload);
+  const me = reloading = run.finally(() => { if (reloading === me) reloading = null; });
+  return me;
+}
+
+async function doReload() {
+  if (backend.kind !== 'remote') return;
   const activeName = getActiveFile(project).name;
   const fresh = await loadProject(backend, project.id).catch((err) => { console.error('Resync failed', err); return null; });
   if (!fresh || backend.kind !== 'remote') return;

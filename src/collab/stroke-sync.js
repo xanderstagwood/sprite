@@ -28,11 +28,22 @@ import { MSG } from './protocol.js';
 const HEX = /^#[0-9a-f]{6}$/i;
 const MAX_STROKE_COLORS = 256; // a brush stroke never legitimately touches more; caps table growth per message
 
+// PeerJS's binary packer hands a typed array back as a bare ArrayBuffer (or a
+// byte view of one), so a diff is rebuilt as Uint32 here; a plain array (any
+// other serializer) passes through. Byte order is the platform's: fine while
+// every client is little-endian, which every browser target is.
+function asDiff(after) {
+  if (after instanceof ArrayBuffer) return after.byteLength % 4 === 0 ? new Uint32Array(after) : null;
+  if (ArrayBuffer.isView(after) && !(after instanceof Uint32Array)) return asDiff(after.buffer.slice(after.byteOffset, after.byteOffset + after.byteLength));
+  return after;
+}
+
 // Color indexes are per-file and append-only, so two participants' tables
 // diverge as soon as each adds a color. A stroke therefore ships the hex of
 // every index it uses, and the receiver re-interns those into its own table.
 // Returns the diff in the receiver's indexes, or null if anything is off.
-function remapDiff(after, colors, pixelCount, table) {
+function remapDiff(raw, colors, pixelCount, table) {
+  const after = asDiff(raw);
   if (!after || typeof after.length !== 'number' || after.length % 2 !== 0) return null;
   if (!colors || typeof colors !== 'object') return null;
   const keys = Object.keys(colors);

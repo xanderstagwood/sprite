@@ -42,7 +42,10 @@ export function createRemoteHostBackend(session, hostId, { timeoutMs = 10_000 } 
   };
 }
 
-const SAFE_NAME = (n) => typeof n === 'string' && n !== '.' && n !== '..' && !/[/\\]/.test(n);
+// User file names can be any character (the starter has canvases named `/` and
+// `\`), and a name stays inside the project's own key prefix in every backend,
+// so only blank names and whole `.`/`..` segments (ways to climb out) are refused.
+const SAFE_NAME = (n) => typeof n === 'string' && n !== '' && !n.split('/').some((seg) => seg === '.' || seg === '..');
 
 // Host side: answers a guest's read requests from its own backend. The one
 // place a peer can make the host touch storage, so it serves exactly the
