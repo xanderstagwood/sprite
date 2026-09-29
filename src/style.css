@@ -388,7 +388,7 @@ h1, h2, .header-text {
   color: #fff;
   background: rgba(0, 0, 0, 0.7);
 }
-/* Presence: one tile under the Collab button, a slot per collaborator (host, guest 1, guest 2), cursor icon in their color then name. */
+/* Presence: one tile under the Collab button, a slot per collaborator (host, guest 1, guest 2), users icon in their color then name. */
 .presence-tile { gap: var(--pad); padding: 0 var(--pad); }
 /* Sized to their names so host + two default-named guests fit the panel width; a long custom name is what ellipsizes. */
 .presence-slot { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--pad); }

@@ -11,7 +11,7 @@ const FROM_CHARACTER = {
   '+': 'new', '✕': 'remove', '⋮': 'grab', '⋯': 'menu', '☰': 'menu', '↓': 'import',
   '◈': 'onion', '⤢': 'resize', '⌕': 'zoom', '▸': 'folded', '▾': 'unfolded',
 };
-const NAMES = new Set(['bug', 'discord', 'heart', 'help', 'zoom', 'new', 'resize', 'import', 'export', 'menu', 'project', 'remove', 'visibility', 'unfolded', 'folded', 'sprite', 'pixi', 'onion', 'grab', 'cursor']);
+const NAMES = new Set(['bug', 'discord', 'heart', 'help', 'zoom', 'new', 'resize', 'import', 'export', 'menu', 'project', 'remove', 'visibility', 'unfolded', 'folded', 'sprite', 'pixi', 'onion', 'grab', 'users']);
 const KEYS = new Set(['ctrl', 'alt', 'shift', 'super', 'return', 'space', 'backspace', 'tab', 'up', 'down', 'left', 'right']);
 
 const resolve = (name) => FROM_CHARACTER[name] || (NAMES.has(name) ? name : null);
@@ -19,8 +19,8 @@ const resolve = (name) => FROM_CHARACTER[name] || (NAMES.has(name) ? name : null
 /** True if `name` (a replaced character, or an icon name) has an icon. */
 export const hasIcon = (name) => resolve(name) !== null;
 
-function build(url) {
-  const w = 6, h = 6; // every icon is drawn on a 6px grid
+function build(url, h = 6) {
+  const w = 6; // every icon is drawn on a 6px-wide grid, and 6 tall unless it says otherwise
   const el = document.createElement('span');
   el.className = 'icon';
   el.style.width = `calc(var(--icon-px) * ${w})`;
@@ -32,7 +32,7 @@ function build(url) {
 /** A new element showing the icon for `name`. */
 export const iconElement = (name) => {
   const file = resolve(name);
-  const el = build(`src/icons/${file}.svg`);
+  const el = build(`src/icons/${file}.svg`, file === 'users' ? 7 : 6); // users: head, gap, shoulders is seven rows
   if (file === 'new') el.classList.add('icon--new'); // drawn with an empty top row
   if (file === 'heart') el.classList.add('icon--lift'); // drawn a device pixel low in its block
   if (file === 'sprite') el.classList.add('icon--lift-2');

@@ -835,7 +835,7 @@ async function endCollab() {
   redrawProjectPanel();
 }
 
-// Ctrl-click on a guest's cursor icon or name in the presence tile. The token rotates, so the old link is
+// Ctrl-click on a guest's icon or name in the presence tile. The token rotates, so the old link is
 // dead: the host's clipboard gets the new one to re-invite with.
 function kickGuest(id) {
   if (collabSession?.getRole() !== 'host') return;

@@ -217,10 +217,7 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
   addRow.append(addFileBtn);
   fileList.append(fileStack);
 
-  // `addRow` is a sibling of the scrollable `fileList`, not a child of its
-  // stack, so it stays anchored above the panel footer instead of scrolling
-  // away with a long file list.
-  // One tile under the Collab button, a slot per collaborator (cursor icon in
+  // One tile under the Collab button, a slot per collaborator (users icon in
   // their color, then name). The local name click-renames; on the host,
   // Ctrl-click on anyone else's icon or name kicks them.
   const people = callbacks.collabParticipants?.() || [];
@@ -234,7 +231,7 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
       const nameEl = document.createElement('span');
       nameEl.className = 'presence-name';
       nameEl.textContent = p.name;
-      slot.append(iconElement('cursor'), nameEl);
+      slot.append(iconElement('users'), nameEl);
       if (p.isSelf) nameEl.addEventListener('click', () => startInlineEdit(nameEl, p.name, (v) => { if (v) callbacks.onRenameSelf(v); }));
       else if (callbacks.onKick) {
         slot.addEventListener('click', (e) => { if (e.ctrlKey) callbacks.onKick(p.id); });
@@ -244,7 +241,11 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
       presenceTile.append(slot);
     }
   }
-  container.append(fileList, addRow, buildCapacityMeter(project, callbacks), header, goLiveBtn, ...(presenceTile ? [presenceTile] : []));
+  // Collab and its presence tile are pinned at the top of the panel, above the scrolling file list.
+  // `addRow` is a sibling of the scrollable `fileList`, not a child of its
+  // stack, so it stays anchored above the panel footer instead of scrolling
+  // away with a long file list.
+  container.append(goLiveBtn, ...(presenceTile ? [presenceTile] : []), fileList, addRow, buildCapacityMeter(project, callbacks), header);
   fileList.scrollTop = scrollTop;
 }
 
