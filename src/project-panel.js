@@ -6,6 +6,82 @@ import { button, setIcon, hoverTip, makeReorderable, startInlineEdit } from './u
 import { iconElement } from './icons.js';
 import { sizeFields } from './size-fields.js';
 
+// Collab: the whole interface is one full-width button. Idle it says "Collab";
+// once a session is up that text fades out and three user icons (host, then the
+// two guest slots) fade in, evenly spaced, each with its person's name beside
+// it, cut to fit with "...". Clicking starts a session, or joins one if a link
+// is on the clipboard, or leaves the one you are in. A slot lights in its
+// person's colour when filled and hover names them; on the host, Ctrl-click on
+// a guest's icon kicks them. The button pulses while a session waits for
+// someone to join and goes solid accent once two or more people are in it (see
+// .collab-waiting in style.css).
+// The button outlives the panel's redraws so that switching on or off can fade:
+// a fresh element would just appear in its final state.
+let collabBtn = null;
+function collabButton(callbacks) {
+  const state = callbacks.collabState || 'idle';
+  const people = callbacks.collabParticipants?.() || [];
+  if (!collabBtn) {
+    collabBtn = button({
+      fill: true, className: 'collab-btn',
+      onClick: (e) => {
+        const slot = e.target.closest('.collab-slot');
+        const cb = collabBtn.callbacks;
+        if (e.ctrlKey) { if (slot?.dataset.id && cb.onKick) cb.onKick(slot.dataset.id); return; } // a Ctrl-click never leaves the session
+        cb.onGoLive();
+      },
+    });
+    const label = document.createElement('span');
+    label.className = 'collab-label';
+    label.textContent = 'Collab';
+    const slots = document.createElement('div');
+    slots.className = 'collab-slots';
+    collabBtn.append(label, slots);
+    hoverTip(collabBtn, 'Collab');
+    // Where Ctrl-click means right-click (macOS) the browser sends contextmenu instead.
+    collabBtn.addEventListener('contextmenu', (e) => {
+      const slot = e.target.closest('.collab-slot');
+      const cb = collabBtn.callbacks;
+      if (e.ctrlKey && slot?.dataset.id && cb.onKick) { e.preventDefault(); cb.onKick(slot.dataset.id); }
+    });
+  }
+  const btn = collabBtn;
+  btn.callbacks = callbacks;
+  btn.classList.toggle('active', state === 'live');
+  btn.classList.toggle('collab-waiting', state === 'waiting');
+  const names = [];
+  const slots = [(p) => p.role === 'host', (p) => p.slot === 1, (p) => p.slot === 2].map((want) => {
+    const p = people.find(want);
+    const slot = document.createElement('span');
+    slot.className = 'collab-slot' + (p ? ' present' : '');
+    slot.append(iconElement('users'));
+    if (p) {
+      slot.dataset.id = p.isSelf ? '' : p.id; // yourself is never a kick target
+      slot.style.setProperty('--collab-color', p.color);
+      hoverTip(slot, p.isSelf ? `${p.name} (you)` : p.name);
+      const name = document.createElement('span');
+      name.className = 'collab-name';
+      slot.append(name);
+      names.push([name, p.name]);
+    }
+    return slot;
+  });
+  btn.querySelector('.collab-slots').replaceChildren(...slots);
+  return {
+    btn,
+    // Once the button is back in the page: cut each name to its room, then move to the icons or the word. The
+    // reflow in between commits the state it was last drawn in, so the change is a transition.
+    reveal() {
+      for (const [el, text] of names) {
+        el.textContent = text;
+        for (let n = text.length; n > 1 && el.scrollWidth > el.clientWidth; n--) el.textContent = text.slice(0, n - 1) + '...';
+      }
+      void btn.offsetWidth;
+      btn.classList.toggle('collab-on', state !== 'idle');
+    },
+  };
+}
+
 // Project panel (ui-design-system §7, design-doc §13). `state` is the
 // { project } holder in main.js; callbacks mutate it and call onChange to
 // re-render + re-bind the active file. File/collection order and grouping
@@ -55,41 +131,7 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
 
   header.append(projectIcon, nameEl, openBtn);
 
-  // Collab: the whole interface is this one full-width button showing three
-  // user icons, host then the two guest slots. Clicking starts a session, or
-  // joins one if a link is on the clipboard, or leaves the one you are in. A
-  // slot lights in its person's colour when filled and hover names them; on
-  // the host, Ctrl-click on a guest's icon kicks them. The button pulses while
-  // a session waits for someone to join and goes solid accent once two or more
-  // people are in it (see .collab-waiting in style.css).
-  const collabState = callbacks.collabState || 'idle';
-  const people = callbacks.collabParticipants?.() || [];
-  const goLiveBtn = button({
-    fill: true, active: collabState === 'live', className: 'collab-btn' + (collabState === 'waiting' ? ' collab-waiting' : ''),
-    onClick: (e) => {
-      const slot = e.target.closest('.collab-slot');
-      if (e.ctrlKey) { if (slot?.dataset.id && callbacks.onKick) callbacks.onKick(slot.dataset.id); return; } // a Ctrl-click never leaves the session
-      callbacks.onGoLive();
-    },
-  });
-  hoverTip(goLiveBtn, 'Collab');
-  for (const want of [(p) => p.role === 'host', (p) => p.slot === 1, (p) => p.slot === 2]) {
-    const p = people.find(want);
-    const slot = document.createElement('span');
-    slot.className = 'collab-slot' + (p ? ' present' : '');
-    if (p) {
-      slot.dataset.id = p.isSelf ? '' : p.id; // yourself is never a kick target
-      slot.style.setProperty('--collab-color', p.color);
-      hoverTip(slot, p.isSelf ? `${p.name} (you)` : p.name);
-    }
-    slot.append(iconElement('users'));
-    goLiveBtn.append(slot);
-  }
-  // Where Ctrl-click means right-click (macOS) the browser sends contextmenu instead.
-  goLiveBtn.addEventListener('contextmenu', (e) => {
-    const slot = e.target.closest('.collab-slot');
-    if (e.ctrlKey && slot?.dataset.id && callbacks.onKick) { e.preventDefault(); callbacks.onKick(slot.dataset.id); }
-  });
+  const collab = collabButton(callbacks);
 
   const fileList = document.createElement('div');
   fileList.className = 'file-list';
@@ -217,7 +259,8 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
   // `addRow` is a sibling of the scrollable `fileList`, not a child of its
   // stack, so it stays anchored above the panel footer instead of scrolling
   // away with a long file list.
-  container.append(goLiveBtn, fileList, addRow, buildCapacityMeter(project, callbacks), header);
+  container.append(collab.btn, fileList, addRow, buildCapacityMeter(project, callbacks), header);
+  collab.reveal();
   fileList.scrollTop = scrollTop;
 }
 

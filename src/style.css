@@ -388,9 +388,17 @@ h1, h2, .header-text {
   color: #fff;
   background: rgba(0, 0, 0, 0.7);
 }
-/* Collab button: three user icons (host, guest 1, guest 2), dim until that slot is filled, then lit in the person's colour. */
-.collab-btn { display: flex; align-items: center; justify-content: center; gap: calc(var(--pad) * 3); }
-.collab-slot { display: flex; align-items: center; pointer-events: auto; }
+/* Collab button: reads "Collab" until a session is up, then that fades out and three user icons (host, guest 1, guest 2)
+   fade in evenly spaced, dim until that slot is filled, then lit in the person's colour with their name beside them. Its
+   sides are spaced like the grab handle's dots on a canvas row: half of what a block has left around one pixel column. */
+.collab-btn { justify-content: flex-start; padding: 0 calc((var(--block) - var(--icon-px)) / 2); }
+.collab-label, .collab-slots { transition: opacity var(--dur-base) ease; }
+.collab-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.collab-slots { display: flex; width: 100%; min-width: 0; opacity: 0; }
+.collab-btn.collab-on .collab-label { opacity: 0; }
+.collab-btn.collab-on .collab-slots { opacity: 1; }
+.collab-slot { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: var(--space-4); pointer-events: auto; }
+.collab-name { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-align: left; }
 /* Slots must beat the generic button-icon colours (rest, hover, selected) above. The outline keeps a red host visible on the solid red live button and a black guest 2 visible on the dark one. */
 .btn.collab-btn .collab-slot.present .icon {
   background: var(--collab-color);
