@@ -1366,7 +1366,9 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
    no longer also folds on a plain click. */
 .fold-arrow {
   font-family: var(--icon-font);
-  flex: 0 0 var(--block);
+  /* The padding gives the arrow the room to its right that the grab handle's dots have to their left, without moving the arrow. */
+  flex: 0 0 calc(var(--block) + var(--icon-px) * 2.5);
+  padding-right: calc(var(--icon-px) * 2.5);
   height: 100%;
   --cursor: click;
   display: flex;
