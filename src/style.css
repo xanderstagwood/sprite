@@ -369,6 +369,17 @@ h1, h2, .header-text {
   height: 100%;
 }
 
+/* Collab (§ collab plan, phase 1): one box per remote participant's cursor,
+   positioned over the canvas in canvas-pixel space (main.js's
+   updateRemoteCursorOverlay computes left/top/width/height per frame). */
+.collab-cursor {
+  position: absolute;
+  z-index: var(--z-trigger);
+  pointer-events: none;
+  outline: 1px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
 /* Invisible edge-hover zones that reveal a panel (§15). */
 .edge-trigger { position: absolute; z-index: var(--z-trigger); }
 .edge-trigger-left { left: 0; top: 0; bottom: 0; width: var(--edge-trigger); }

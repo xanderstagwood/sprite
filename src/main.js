@@ -27,6 +27,8 @@ import { connectFolder } from './storage.js';
 import { chooseBackend, loadProject, saveProject, listProjects, deleteProject, deleteStoredFile, ensureLoaded, markUsed, unloadIdle, debounce, autosaveDelay } from './persistence.js';
 import { ensureAllFramesLoaded, ensureFrameLoaded, syncHotWindow, getCachedThumbnail } from './frame-cache.js';
 import * as frameSelection from './frame-selection.js';
+import { createSession } from './collab/session.js';
+import { makeJoinLink, parseJoinCode, MSG } from './collab/protocol.js';
 import { createRevealablePanel } from './panel-reveal.js';
 import { createKeybindHelp } from './keybind-help.js';
 import { renderExportPanel } from './export-panel.js';
@@ -726,6 +728,41 @@ let clipboard = null;
 let rotating = null; // { snapshot, center } while R is held
 const playback = { fps: 8, onionSkin: false, onionLayerOnly: false, playing: false, timer: null };
 
+// Collab (§ collab plan, phase 1: cursor sync only). `null` outside a
+// session; only created on the first Go Live click, so a solo user never
+// even fetches PeerJS (see peerjs-loader.js's lazy import).
+let collabSession = null;
+const remoteCursors = new Map(); // participant id -> { x, y, name }
+let lastCursorSendAt = 0;
+const CURSOR_SEND_INTERVAL_MS = 100; // fixed ~10fps for phase 1; Phase 4 makes this adaptive
+
+function collabButtonLabel() {
+  if (!collabSession) return 'Go Live';
+  const role = collabSession.getRole();
+  return role === 'host' ? 'Hosting…' : role === 'guest' ? 'Connected' : 'Go Live';
+}
+
+async function toggleGoLive() {
+  if (collabSession) { collabSession.leave(); collabSession = null; remoteCursors.clear(); redrawProjectPanel(); return; }
+  let code = null;
+  try { code = parseJoinCode(await navigator.clipboard.readText()); } catch { /* clipboard read can be denied; treat as no code */ }
+  collabSession = createSession();
+  collabSession.onMessage(MSG.CURSOR, (payload, fromId) => { remoteCursors.set(fromId, payload); needsRender = true; });
+  collabSession.onMessage('participant-left', ({ id }) => remoteCursors.delete(id));
+  try {
+    if (code) {
+      await collabSession.join(code);
+    } else {
+      const hostId = await collabSession.host();
+      await navigator.clipboard.writeText(makeJoinLink(hostId));
+    }
+  } catch (err) {
+    console.error('Collab session failed to start', err);
+    collabSession = null;
+  }
+  redrawProjectPanel();
+}
+
 // Fixed range: 2 frames each direction, not user-configurable (§12.3).
 const ONION_RANGE = 2;
 function computeOnionFrames(file) {
@@ -1045,8 +1082,46 @@ function draw() {
       renderCanvas();
     }
   }
+  if (collabSession && hoverPixel) {
+    const now = performance.now();
+    if (now - lastCursorSendAt >= CURSOR_SEND_INTERVAL_MS) {
+      lastCursorSendAt = now;
+      collabSession.send(MSG.CURSOR, { x: hoverPixel.x, y: hoverPixel.y });
+    }
+  }
+  if (collabSession) updateRemoteCursorOverlay();
   requestAnimationFrame(animateCursor);
 })();
+
+// Phase 1's whole presence UI: one absolutely-positioned box + label per
+// remote cursor, laid over the canvas element. DOM rather than a renderer.js
+// draw call (renderer.js's draw object doesn't know about collab, and this
+// is exactly the kind of thing HTML already does well - a positioned div
+// with text). Phase 4 replaces the placeholder color/name with the real
+// per-participant ones from presence.js.
+const collabCursorEls = new Map(); // participant id -> element
+function updateRemoteCursorOverlay() {
+  const rect = canvas.getBoundingClientRect();
+  const viewport = computeViewport(model, rect.width, rect.height);
+  const seen = new Set();
+  for (const [id, pos] of remoteCursors) {
+    seen.add(id);
+    let el = collabCursorEls.get(id);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'collab-cursor';
+      canvas.parentElement.append(el);
+      collabCursorEls.set(id, el);
+    }
+    el.style.left = `${viewport.ox + pos.x * viewport.scale}px`;
+    el.style.top = `${viewport.oy + pos.y * viewport.scale}px`;
+    el.style.width = `${Math.max(viewport.scale, 1)}px`;
+    el.style.height = `${Math.max(viewport.scale, 1)}px`;
+  }
+  for (const [id, el] of collabCursorEls) {
+    if (!seen.has(id)) { el.remove(); collabCursorEls.delete(id); }
+  }
+}
 
 // Any input can change what the canvas shows (hover, zoom, tool, colour,
 // toggles), and most handlers rely on the loop noticing rather than calling
@@ -1124,6 +1199,8 @@ function redrawProjectPanel() {
     // The panel's import button: a spritesheet (new File) or a whole .sprite project.
     onImport: (anchor) => pickFile('image/*,.sprite,.json', (f) => (isImageFile(f) ? importSpritesheet(f, { mode: 'frames', anchor }) : importProjectFile(f))),
     onSplitProject: () => splitProject(),
+    onGoLive: () => toggleGoLive(),
+    collabLabel: collabButtonLabel(),
     // Double click on New File: same size as whichever canvas was last worked
     // on, wherever it lives; the new-project default only if nothing was.
     onAddFileCurrent: () => {

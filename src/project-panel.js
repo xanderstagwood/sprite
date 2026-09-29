@@ -53,6 +53,14 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
 
   header.append(projectIcon, nameEl, openBtn);
 
+  // Collab (§ collab plan, phase 1): one full-width button. A join code on
+  // the clipboard means someone shared a link, so clicking joins their
+  // session; nothing there means starting a new one, host role, link copied
+  // back to the clipboard to share. `callbacks.collabLabel` reflects the
+  // live state (idle / hosting / connecting / in a session) once a session
+  // can actually be live; phase 1 just wires the click.
+  const goLiveBtn = button({ label: callbacks.collabLabel || 'Go Live', fill: true, className: 'go-live-btn', onClick: callbacks.onGoLive });
+
   const fileList = document.createElement('div');
   fileList.className = 'file-list';
 
@@ -211,7 +219,7 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
   // `addRow` is a sibling of the scrollable `fileList`, not a child of its
   // stack, so it stays anchored above the panel footer instead of scrolling
   // away with a long file list.
-  container.append(fileList, addRow, buildCapacityMeter(project, callbacks), header);
+  container.append(fileList, addRow, buildCapacityMeter(project, callbacks), header, goLiveBtn);
   fileList.scrollTop = scrollTop;
 }
 
