@@ -1242,6 +1242,22 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
   padding: var(--space-2) 0;
   color: var(--text-secondary);
 }
+.keybind-help-frame { display: flex; flex-direction: column; align-items: center; margin: auto; }
+.keybind-help-more {
+  display: flex;
+  flex: none;
+  /* The padding is both the space between the arrow and the panel and a bigger target to click. */
+  padding: var(--space-6) var(--space-8);
+  color: var(--text-primary);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-base) ease;
+  --cursor: click;
+}
+.keybind-help-more.visible { opacity: 1; pointer-events: auto; }
+.keybind-help-more:hover, .keybind-help-more:active, .keybind-help-more.pressed { color: var(--accent); }
+/* Twice the size the key icons have in the rows: whole multiples of the icon's art pixel, so they stay crisp. */
+.keybind-help-more .icon--inline { --icon-px: calc(var(--font-body) / 8); }
 .keybind-help-key {
   flex: 0 0 var(--help-key-w);
   text-align: right;

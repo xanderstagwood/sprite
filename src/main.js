@@ -3118,6 +3118,7 @@ window.addEventListener('keydown', (e) => {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || (document.activeElement && document.activeElement.isContentEditable)) return;
   if (keybindHelp.isOpen()) {
     if (e.key === '?' || e.key === 'Escape') { e.preventDefault(); keybindHelp.close(); }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); if (!e.repeat) keybindHelp.press(e.key === 'ArrowUp' ? -1 : 1); }
     return;
   }
   if (exportErrorOverlay) {
@@ -3243,6 +3244,9 @@ window.addEventListener('keydown', (e) => {
 let rTap = null; // { shift } from R's keydown until its keyup
 window.addEventListener('keyup', (e) => {
   debugAlerts.keyup(e); // DEBUG
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') keybindHelp.release();
+  if (e.key === 'Backspace' || e.key === 'Delete') removeHold.cancel();
+  if (e.key === 't' || e.key === 'T') endTrim(true);
   if (e.key.startsWith('Arrow')) {
     heldArrows.delete(e.key);
     if (heldArrows.size === 0) {

@@ -15,7 +15,7 @@ const GROUPS = [
     ['Ctrl+C / Ctrl+X / Ctrl+V', 'Copy / Cut / Paste'],
     ['Ctrl+A', 'Select all'],
     ['Ctrl+Space', 'Play/pause timeline'],
-    ['e / E', 'Quick / full export of the focused panel'],
+    ['e / E', 'Quick / full export of the focused panel: canvas PNGs and SVG, timeline sheet and GIF, layers sheet and PNGs, palette image and files, project SVGs or .sprite'],
     ['Ctrl(left)+Arrow', 'Focus Timeline/Layers/Colors/Projects (Up/Right/Down/Left)'],
     ['Ctrl(left)', 'Return focus to the canvas'],
   ]],
@@ -111,6 +111,8 @@ const keyLabel = (text) => text.split(new RegExp(KEY_NAME.source, 'g')).map((par
 
 export function createKeybindHelp() {
   let overlay = null;
+  let more = null; // the { up, down } scroll arrows
+  let scroller = null; // the panel that scrolls
   let closeTimer = null;
 
   function build() {
@@ -136,7 +138,7 @@ export function createKeybindHelp() {
         const k = document.createElement('span');
         k.className = 'keybind-help-key';
         k.append(...keyLabel(key));
-        hoverTip(k, key); // the icons are pictures: spell the combo out in the tool tag
+        hoverTip(row, key); // the icons are pictures: spell the combo out in the tool tag, whether the pointer is over the keys or their description
         const d = document.createElement('span');
         d.textContent = desc;
         row.append(k, d);
@@ -144,12 +146,41 @@ export function createKeybindHelp() {
       }
     }
 
-    overlay.append(panel);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    // The panel with an arrow above it and one below, each showing while there is more to scroll to that way.
+    more = { up: moreArrow('up'), down: moreArrow('down') };
+    const frame = document.createElement('div');
+    frame.className = 'keybind-help-frame';
+    frame.append(more.up, panel, more.down);
+    overlay.append(frame);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target === frame) close(); });
+    panel.addEventListener('scroll', updateMore);
+    scroller = panel;
     document.body.append(overlay);
+    updateMore();
 
     // Fade the dark filter layer in, slide the panel up into place.
     requestAnimationFrame(() => overlay.classList.add('visible'));
+  }
+
+  function moreArrow(direction) {
+    const el = document.createElement('div');
+    el.className = 'keybind-help-more';
+    el.append(keyIcon(direction));
+    el.addEventListener('click', () => page(direction === 'up' ? -1 : 1));
+    return el;
+  }
+
+  // A page up or down, easing there.
+  function page(direction) {
+    if (!scroller) return;
+    const row = scroller.querySelector('.keybind-help-row').offsetHeight;
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    scroller.scrollBy({ top: direction * (scroller.clientHeight - row * 2), behavior: still ? 'auto' : 'smooth' });
+  }
+
+  function updateMore() {
+    more.up.classList.toggle('visible', scroller.scrollTop > 0);
+    more.down.classList.toggle('visible', scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1);
   }
 
   function open() {
@@ -169,6 +200,17 @@ export function createKeybindHelp() {
   return {
     toggle() { overlay ? close() : open(); },
     isOpen: () => !!overlay,
+    /** The Up (-1) or Down (1) key went down: presses that arrow, if it is showing, and pages that way. */
+    press(direction) {
+      const arrow = more && more[direction < 0 ? 'up' : 'down'];
+      if (!arrow || !arrow.classList.contains('visible')) return;
+      arrow.classList.add('pressed');
+      page(direction);
+    },
+    /** Lets go of both arrows. */
+    release() {
+      if (more) more.up.classList.remove('pressed'), more.down.classList.remove('pressed');
+    },
     close,
   };
 }
