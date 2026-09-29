@@ -571,6 +571,8 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
   border-top: none;
 }
 #tool-tag.hidden-tag { display: none; }
+/* While the tag eases to a new width (tag-motion.js's slideWidth): what the shrinking width cuts off stays hidden. */
+#tool-tag.sliding { overflow: hidden; transition: left var(--dur-slow) ease, bottom var(--dur-slow) ease, width var(--dur-base) ease; }
 .tool-tag-label {
   display: flex;
   align-items: center;
@@ -578,6 +580,8 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
   font-size: var(--font-body);
   color: var(--text-secondary);
   white-space: nowrap;
+  /* Text fades out and in on a change (tag-motion.js's fadeText) and a warning's red fades in and out. */
+  transition: opacity var(--dur-fast) ease, background-color var(--dur-base) ease;
 }
 /* The plain class rule's own `display: flex` above would otherwise beat
    the `hidden` attribute's default UA style (same-origin author rules

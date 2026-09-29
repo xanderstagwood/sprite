@@ -46,6 +46,7 @@ import { paletteNameFromFile } from './palette-parse.js';
 import { isImageFile } from './image-import.js';
 import { addReference, removeReference, reorderReference, resolveReference, drawableReferences, referencesOf } from './references.js';
 import { quickExport, onExportProgress } from './export.js';
+import { slideWidth, fadeText } from './tag-motion.js';
 import { debugAlerts } from './debug-alerts.js'; // DEBUG
 import { planCanvas, planTimeline, planLayers, planColors, planProject } from './export-plan.js';
 import { unzipSync } from 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
@@ -179,11 +180,11 @@ function pulse(el) {
 // runExport for the retry-then-classify logic. It pulses when it appears.
 let exportError = null;
 onExportProgress((status) => {
-  exportBar.hidden = !status.active;
+  setHidden(exportBar, !status.active);
   if (status.active) exportBarFill.style.width = Math.round((status.fraction ?? 0) * 100) + '%';
   if ('error' in status) exportError = status.error;
-  exportErrorLabel.hidden = status.active || !exportError;
-  if (exportError) exportErrorLabel.textContent = exportError.short;
+  setHidden(exportErrorLabel, status.active || !exportError);
+  if (exportError) setText(exportErrorLabel, exportError.short);
   if (status.error) pulse(exportErrorLabel);
   updateToolTag();
 });
@@ -227,11 +228,22 @@ let groupHoverTip = null;
 // touches the DOM when a value actually changed.
 let canvasRect = canvas.getBoundingClientRect();
 let swatchColor = null;
-const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
-const setHidden = (el, hidden) => { if (el.hidden !== hidden) el.hidden = hidden; };
+// A write that can change the tag's width marks it dirty, so the tag slides to its new size (tag-motion.js).
+let tagDirty = false;
+const setText = (el, text) => { if (el.textContent !== text) { el.textContent = text; tagDirty = true; } };
+const setHidden = (el, hidden) => { if (el.hidden !== hidden) { el.hidden = hidden; tagDirty = true; } };
+const slideTag = slideWidth(toolTag);
+const FADE_MS = 120; // matches --dur-fast, the opacity transition on .tool-tag-label
+const fadeToolLabel = fadeText(toolLabel, FADE_MS, slideTag);
 
 function updateToolTag() {
   if (!appReady) return;
+  tagDirty = false;
+  paintToolTag();
+  if (tagDirty) slideTag();
+}
+
+function paintToolTag() {
   const rect = canvasRect;
   // An export in progress takes over the label slot with the progress bar
   // (already shown/hidden by the onExportProgress subscription above):
@@ -246,7 +258,7 @@ function updateToolTag() {
     // single-file canvas's.
     const tip = alertText || hoverTip || groupHoverTip;
     setHidden(toolLabel, !tip); // nothing to show between artboards: don't render an empty tip section
-    setText(toolLabel, tip || '');
+    if (tip) fadeToolLabel(tip); else setText(toolLabel, '');
     setHidden(primarySwatch, true);
     const scale = groupViewState.zoom || groupFitScale(groupLayoutModel(), rect.width, rect.height);
     setText(zoomLabel, zoomPercent(scale) + '%');
@@ -255,7 +267,7 @@ function updateToolTag() {
     setHidden(toolLabel, false);
     const modeLabel = MODE_LABELS[inputController && inputController.getMode()] || 'Place';
     const size = brushSize;
-    setText(toolLabel, alertText || hoverTip || `${size}px ${modeLabel}${paintOptions.dither ? ' (dither)' : ''}${paintOptions.symmetry !== 'off' ? ' (mirror)' : ''}`);
+    fadeToolLabel(alertText || hoverTip || `${size}px ${modeLabel}${paintOptions.dither ? ' (dither)' : ''}${paintOptions.symmetry !== 'off' ? ' (mirror)' : ''}`);
   }
   setHidden(primarySwatch, false);
   const scale = (viewState.zoom || fitScale(model, rect.width, rect.height));
