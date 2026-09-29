@@ -2,9 +2,11 @@
 // Layout does not promise that: centring, percentages, a scrolled panel or a
 // fractional pixel ratio all leave text half a pixel out. This settles it in one
 // place instead of every feature rounding its own positions: after layout it
-// finds each run of text (and each icon, which is pixel art too), measures where
-// it landed and nudges it onto the nearest device pixel with the `translate`
-// property (see `--snap-x` and `--snap-y` in style.css).
+// finds each run of text (and each frame and layer thumbnail), measures where it
+// landed and nudges it onto the nearest device pixel with the `translate`
+// property (see `--snap-x` and `--snap-y` in style.css). Icons are left alone:
+// the browser already draws their boxes on whole device pixels, and a nudge on
+// top of that clipped the left column off the new canvas button's icon.
 
 const EPS = 1e-4; // css px: anything smaller is rounding noise
 
@@ -25,6 +27,22 @@ export function alignShifts(items, dpr) {
     if (Math.abs(own.x) > EPS || Math.abs(own.y) > EPS) out.set(it.id, own);
   }
   return out;
+}
+
+// Pictures nudged along with the text: the frame and layer thumbnails.
+const PICTURES = '.frame-tile canvas, .layer-thumb canvas';
+
+// Classes that only recolour or outline: adding or dropping one moves nothing, so a
+// playing timeline lighting up a frame each step does not settle the whole panel again.
+const VISUAL = new Set(['active', 'selected', 'dragging', 'removing', 'pressed', 'alert-pulse', 'collab-on', 'collab-waiting', 'frame-tile--selected', 'layer-row--selected', 'hidden-indicator', 'kb-focused', 'help-nav-focused']);
+
+/** Whether going from class list `before` to `after` can move anything: false when only the visual states above changed. */
+export function classChangeMatters(before, after) {
+  if (before === null || after === null) return true;
+  const a = new Set(before.split(/\s+/).filter(Boolean)), b = new Set(after.split(/\s+/).filter(Boolean));
+  for (const c of a) if (!b.has(c) && !VISUAL.has(c)) return true;
+  for (const c of b) if (!a.has(c) && !VISUAL.has(c)) return true;
+  return false;
 }
 
 const SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'CANVAS', 'SVG', 'NOSCRIPT']);
@@ -74,7 +92,7 @@ export function snapText(root = document.body) {
     const rect = range.getBoundingClientRect();
     if (rect.width || rect.height) spots.set(el, rect);
   }
-  for (const el of root.querySelectorAll('.icon')) {
+  for (const el of root.querySelectorAll(PICTURES)) {
     const rect = el.getBoundingClientRect();
     if (rect.width || rect.height) spots.set(el, rect);
   }
@@ -97,7 +115,7 @@ export function snapText(root = document.body) {
 }
 
 function observe() {
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeOldValue: true, attributeFilter: ['class', 'hidden', 'style'] });
 }
 
 // One settle per frame, before it is painted, for every container that changed.
@@ -120,7 +138,12 @@ function schedule(root) {
  * or moved (a transition ends, a panel scrolls, the window resizes, a font loads).
  */
 export function watchTextSnap() {
-  observer = new MutationObserver((records) => { for (const r of records) schedule(container(r.target)); });
+  observer = new MutationObserver((records) => {
+    for (const r of records) {
+      if (r.attributeName === 'class' && !classChangeMatters(r.oldValue, r.target.getAttribute('class'))) continue;
+      schedule(container(r.target));
+    }
+  });
   observe();
   window.addEventListener('resize', () => schedule(document.body));
   for (const type of ['transitionend', 'animationend', 'scroll']) {

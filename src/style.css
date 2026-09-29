@@ -1080,9 +1080,9 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
 /* the app icon sits two device pixels low */
 .icon--lift-2 { transform: translateY(calc(var(--icon-px) * -1)); }
 /* the help tag's icons all sit a device pixel higher; `translate` adds to the lifts above rather than replacing them */
-#help-tag .icon { translate: var(--snap-x, 0px) calc(var(--icon-px) / -2 + var(--snap-y, 0px)); }
+#help-tag .icon { translate: 0 calc(var(--icon-px) / -2); }
 /* The menu icon is centred: its bars are 3 of the 6 pixels wide, so half the spare room moves it over. In a selected tile every button icon is dark red, like the handle. */
-.icon--menu { translate: calc(var(--icon-px) * 1.5 + var(--snap-x, 0px)) var(--snap-y, 0px); }
+.icon--menu { translate: calc(var(--icon-px) * 1.5) 0; }
 .tile.selected .btn .icon, .tile.active .btn .icon { background: var(--accent-dark); }
 .tile.selected .btn:hover .icon, .tile.active .btn:hover .icon { background: var(--text-primary); }
 .btn:hover .icon--heart { background: var(--accent); }
@@ -1336,8 +1336,8 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
 }
 .layer-thumb:hover .opacity-pip { opacity: 1; }
 
-/* text-snap.js nudges text and icons onto whole device pixels with these two custom properties. Any rule of its own that sets
-   `translate` on such an element has to add them (see .icon--menu). */
+/* text-snap.js nudges text and thumbnails onto whole device pixels with these two custom properties. Any rule of its own that sets
+   `translate` on such an element has to add them. */
 :where([style*="--snap"]) { translate: var(--snap-x, 0px) var(--snap-y, 0px); }
 
 /* On the red of a selected row the faint grey has about the same value as the fill: a dark red instead, so it recedes but reads. */
