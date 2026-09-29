@@ -145,7 +145,7 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
     const row = document.createElement('div');
     const multiSelected = !!(fileSelection && fileSelection.has(fileIndex));
     const selected = !activeGroupId && (multiSelected || fileIndex === project.activeFileIndex);
-    row.className = 'file-row tile reveal-on-hover' + (selected ? ' selected' : '');
+    row.className = 'file-row tile reveal-on-hover' + (file.groupId != null ? ' file-row--nested' : '') + (selected ? ' selected' : '');
     row.dataset.fileIndex = fileIndex; // § multi-select menu anchor lookup
     row.addEventListener('click', (e) => {
       // Shift/Alt-click build a multi-file selection instead of switching
