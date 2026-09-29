@@ -35,7 +35,6 @@ import { createStrokeSync } from './collab/stroke-sync.js';
 import { createRemoteHostBackend, serveReads } from './collab/remote-host-backend.js';
 import { createRevealablePanel } from './panel-reveal.js';
 import { createKeybindHelp } from './keybind-help.js';
-import { renderExportPanel } from './export-panel.js';
 import { renderOpenProjectPanel } from './open-project-panel.js';
 import { VERSION, GITHUB_ISSUES_URL, ITCH_IO_URL, DISCORD_URL, KOFI_URL } from './version.js';
 import { loadUiPrefs, saveUiPrefs } from './ui-prefs.js';
@@ -46,7 +45,8 @@ import { askSheetGrid } from './spritesheet-panel.js';
 import { paletteNameFromFile } from './palette-parse.js';
 import { isImageFile } from './image-import.js';
 import { addReference, removeReference, reorderReference, resolveReference, drawableReferences, referencesOf } from './references.js';
-import { exportFile, exportCollection, exportProjectSprite, onExportProgress } from './export.js';
+import { quickExport, onExportProgress } from './export.js';
+import { planCanvas, planTimeline, planLayers, planColors, planProject } from './export-plan.js';
 import { unzipSync } from 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
 import { SHAPE_OUTLINES, constrainSquare } from './shapes.js';
 import { openSlideOut, snapPx } from './slide-out.js';
@@ -62,7 +62,6 @@ installCursor(canvas);
 const ctx = canvas.getContext('2d');
 const paletteBar = document.getElementById('palette-bar');
 const projectPanel = document.getElementById('project-panel');
-const exportPanel = document.getElementById('export-panel');
 const openProjectPanel = document.getElementById('open-project-panel');
 const layersPanel = document.getElementById('layers-panel');
 const timelineBar = document.getElementById('timeline-bar');
@@ -273,21 +272,13 @@ const blocks = (n) => (n ? `calc(var(--block) * ${n})` : '0px');
 // until it opens; these mark it as owing one. Declared before the panels are
 // built: a pinned panel reports itself visible during construction.
 let layersStale = true, timelineStale = true;
-let projectReveal, exportReveal, openProjectReveal, layersReveal, timelineReveal, paletteReveal;
+let projectReveal, openProjectReveal, layersReveal, timelineReveal, paletteReveal;
 function updatePushes() {
   const projectOpen = !!(projectReveal && projectReveal.isFocused());
-  // Export and Open Project only ever show docked beside an open Project
-  // panel, and never both at once (each force-closes the other when
-  // opened, below): if Project closes out from under whichever is open
-  // (e.g. unpinned via Tab), close it too.
-  if (!projectOpen) {
-    if (exportReveal && exportReveal.isFocused()) exportReveal.forceHide();
-    if (openProjectReveal && openProjectReveal.isFocused()) openProjectReveal.forceHide();
-  }
-  const exportOpen = !!(exportReveal && exportReveal.isFocused());
-  const openProjectOpen = !!(openProjectReveal && openProjectReveal.isFocused());
-  const secondSlotOpen = exportOpen || openProjectOpen;
-  if (exportPanel) exportPanel.style.setProperty('--export-left', blocks(projectOpen ? SIDE_PANEL_BLOCKS : 0));
+  // Open Project only ever shows docked beside an open Project panel: if
+  // Project closes out from under it (e.g. unpinned via Tab), close it too.
+  if (!projectOpen && openProjectReveal && openProjectReveal.isFocused()) openProjectReveal.forceHide();
+  const secondSlotOpen = !!(openProjectReveal && openProjectReveal.isFocused());
   if (openProjectPanel) openProjectPanel.style.setProperty('--open-project-left', blocks(projectOpen ? SIDE_PANEL_BLOCKS : 0));
   const pushedLeft = projectOpen || secondSlotOpen;
   const pushedRight = !!(layersReveal && layersReveal.isFocused());
@@ -332,19 +323,14 @@ document.addEventListener('slideout-bounds', (e) => {
 // Pin state is restored from uiPrefs (palette starts pinned by default:
 // §7.2 flagged assumption 3: on a first run with nothing saved yet), and
 // persisted back on every pin/unpin so a reload looks the way you left it.
-// Export doesn't get this: it isn't independently pinnable (only ever
-// opens alongside Project, via openExport()), so there's no pin state of
-// its own worth remembering.
 projectReveal = createRevealablePanel(projectPanel, document.getElementById('project-trigger'), {
   initiallyPinned: uiPrefs.project, onVisibility: updatePushes,
   onPinChange: (v) => { uiPrefs.project = v; saveUiPrefs(uiPrefs); },
 });
-// No edge trigger: opened only by the Project panel's Export button
-// (openExport(), below); its own element is its "trigger" so hovering it
-// keeps it open with the same grace-period behavior as every other panel.
-exportReveal = createRevealablePanel(exportPanel, exportPanel, { onVisibility: updatePushes });
-// Same non-pinnable, own-element-as-trigger treatment as Export: opened
-// only by the Project panel's "Open" menu item (openProjectListPanel(), below).
+// No edge trigger and not pinnable: opened only by the Project panel's
+// "Open" menu item (openProjectListPanel(), below); its own element is its
+// "trigger" so hovering it keeps it open with the same grace-period
+// behavior as every other panel.
 openProjectReveal = createRevealablePanel(openProjectPanel, openProjectPanel, { onVisibility: updatePushes });
 layersReveal = createRevealablePanel(layersPanel, document.getElementById('layers-trigger'), {
   initiallyPinned: uiPrefs.layers, onVisibility: (visible) => { updatePushes(); if (visible && layersStale && layersReveal) redrawLayersPanel(); }, // not during construction: layersReveal is unset and the project isn't loaded yet
@@ -1338,7 +1324,6 @@ function redrawProjectPanel() {
       bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel();
       if (scrollTo) scrollProjectRowIntoView(scrollTo);
       draw();
-      if (exportReveal && exportReveal.isFocused()) redrawExportPanel();
     },
     onSelectFile: (i) => selectFile(i),
     onShiftSelectFile: (targetIndex) => shiftSelectFile(targetIndex),
@@ -1374,16 +1359,6 @@ function redrawProjectPanel() {
       if (!(await trimWithUndo(file))) { flashTip('Nothing to trim'); return; }
       if (file === getActiveFile(project)) { bindActiveFile(); resetView(); selectionApi.clear(); }
       redrawProjectPanel(); draw(); autosave();
-    },
-    onExportFile: (file, i) => {
-      project.activeFileIndex = i;
-      setActiveGroup(null);
-      bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw();
-      openExport({ kind: 'file', file, fps: playback.fps });
-    },
-    onExportCollection: async (collection) => {
-      await Promise.all(projectOrder(project).filter((e) => !e.isHeader && e.item.groupId === collection.id).map((e) => ensureLoaded(e.item)));
-      openExport({ kind: 'collection', name: collection.name, artboards: groupArtboards(collection.id) });
     },
     onReorder: (from, to) => { moveProjectItem(project, from, to); redrawProjectPanel(); draw(); autosave(); },
     onRemoveFile: (i) => {
@@ -1466,7 +1441,6 @@ function openFileSelectionMenu(lastAddedIndex) {
   const files = [...fileSelection].map((i) => project.files[i]).filter(Boolean);
   openSlideOut(anchor, [
     { label: 'Resize', onClick: () => openMultiResizePopup(anchor, files) },
-    { label: 'Export', onClick: () => exportSelectedFiles(files) },
     { label: 'Remove all', onClick: () => removeSelectedFiles(files) },
   ], { onDismiss: dismissFileSelection });
 }
@@ -1492,15 +1466,6 @@ function openMultiResizePopup(anchor, files) {
   });
 }
 
-// One PNG download per selected file (the same default 'e' itself exports
-// a single active file with): a full per-file format/scale picker for a
-// multi-export is more than this needed yet.
-async function exportSelectedFiles(files) {
-  for (const file of files) await exportFile(file, { format: 'png', scale: 1, mode: 'canvas' });
-  fileSelection = null;
-  redrawProjectPanel();
-}
-
 // Descending index order: deleting high indices first means earlier ones
 // never shift out from under the next delete. deleteFile's own "at least
 // one file" guard already stops short of emptying the project entirely.
@@ -1523,44 +1488,35 @@ function focusedCollectionId() {
 }
 redrawProjectPanel();
 
-// What the Export panel is currently showing: a File, a Collection, or
-// the whole Project (§ export-panel.js's own `target` shapes): so a
-// generic refresh (e.g. onChange, below, whenever anything the panel might
-// be displaying could have changed) knows what to re-render without every
-// caller having to re-supply it.
-let exportTarget = null;
-function redrawExportPanel() {
-  if (exportTarget) renderExportPanel(exportPanel, exportTarget);
-}
-
-// Opens the Export panel already showing `target`, docked beside the
-// Project panel (which it reveals/pins open too, since Export only makes
-// sense next to it). Switching to a new target while already open just
-// re-points it, rather than toggling closed: only the plain "E" shortcut
-// (toggleExportForActiveFile, below) toggles.
-let exportOpenedProject = false; // Export had to open the Project panel to sit beside it
-function openExport(target) {
-  if (openProjectReveal.isPinned()) openProjectReveal.forceHide(); // same docked slot: mutually exclusive
-  exportTarget = target;
-  if (!exportReveal.isPinned()) exportOpenedProject = !projectReveal.isPinned();
-  projectReveal.setPinned(true);
-  exportReveal.setPinned(true);
-  redrawExportPanel();
-}
-
-// A click anywhere outside the Export panel closes it (and the Project panel too, if Export was what opened it).
-// The Project panel, menus and dialogs spawned from Export count as inside.
-document.addEventListener('pointerdown', (e) => {
-  if (!exportReveal || !exportReveal.isPinned()) return;
-  if (e.target.closest('#export-panel, #project-panel, .slide-out-bar, .modal-overlay')) return;
-  exportReveal.forceHide();
-  if (exportOpenedProject) projectReveal.forceHide();
-  exportOpenedProject = false;
-}, true);
-
-function toggleExportForActiveFile() {
-  if (exportReveal.isPinned()) { exportReveal.forceHide(); return; }
-  openExport({ kind: 'file', file: getActiveFile(project), fps: playback.fps });
+// Quick export ([e], [E] for the fuller set): what is exported follows the
+// panel that has focus and its selection (export-plan.js has the recipes).
+// In a collection's grid view the canvas stands for that collection.
+function quickExportFocused(full) {
+  const file = getActiveFile(project);
+  const inProjects = focusedPanel === 'projects' || (focusedPanel === 'canvas' && activeGroupId);
+  return quickExport(async () => {
+    if (inProjects) {
+      const filesOf = (id) => projectOrder(project).filter((e) => !e.isHeader && e.item.groupId === id).map((e) => e.item);
+      const collectionId = focusedCollectionId() || activeGroupId;
+      const collection = collectionId && project.collections.find((c) => c.id === collectionId);
+      let selected = null;
+      if (fileSelection && fileSelection.size) {
+        const chosen = new Set([...fileSelection].map((i) => project.files[i]));
+        selected = project.collections.map((c) => ({ name: c.name, files: filesOf(c.id).filter((f) => chosen.has(f)) })).filter((c) => c.files.length);
+      }
+      const involved = selected ? selected.flatMap((c) => c.files) : collection ? filesOf(collection.id) : [file];
+      await Promise.all(involved.map(ensureLoaded));
+      return planProject({ project, file, selected, collection: collection && { name: collection.name, files: filesOf(collection.id) } }, full);
+    }
+    if (focusedPanel === 'colors') return planColors(project.palette.name || 'palette', project.palette.chips, full);
+    if (focusedPanel === 'timeline') {
+      await ensureAllFramesLoaded(file);
+      const range = frameSelection.getRange();
+      return planTimeline(file, range && Array.from({ length: range.hi - range.lo + 1 }, (_, k) => range.lo + k), playback.fps, full);
+    }
+    if (focusedPanel === 'layers') return planLayers(file, multiLayerSelection && [...multiLayerSelection].sort((a, b) => a - b), full);
+    return planCanvas(file, selectionMask, full);
+  });
 }
 
 async function redrawOpenProjectPanel() {
@@ -1580,12 +1536,11 @@ async function redrawOpenProjectPanel() {
 }
 
 // "Open" (project panel menu, § openProjectPicker below): docks the list of
-// other saved projects beside Project, same treatment as Export (openExport
-// above) rather than a floating slide-out menu: switching projects is a
-// real navigation action with its own list, not a one-off pick.
+// other saved projects beside Project rather than a floating slide-out
+// menu: switching projects is a real navigation action with its own list,
+// not a one-off pick.
 function openProjectListPanel() {
   if (openProjectReveal.isPinned()) { openProjectReveal.forceHide(); return; }
-  if (exportReveal.isPinned()) exportReveal.forceHide(); // same docked slot: mutually exclusive
   projectReveal.setPinned(true);
   openProjectReveal.setPinned(true);
   redrawOpenProjectPanel();
@@ -1634,7 +1589,7 @@ async function splitProject() {
 // Import (project panel menu): a real system file-picker dialog
 // (<input type="file">: the native/platform picker, no custom UI of its
 // own), accepting the same whole-project .sprite archive
-// exportProjectSprite (Tab+Shift+E) writes: its inverse: or a
+// Shift+E in the Projects panel writes: its inverse: or a
 // pre-archive plain-JSON whole-project export, for anything exported
 // before that format existed. Routed through saveProject+loadProject
 // rather than switched to directly, so an imported project picks up the
@@ -3003,8 +2958,6 @@ function dispatchProjects(e) {
     else renameActiveFile();
     return;
   }
-  if (e.key === 'e' && !e.repeat) { toggleExportForActiveFile(); return; }
-  if (e.key === 'E' && !e.repeat) { exportProjectSprite(project); return; }
   if (e.key === '\\' && !e.repeat) { openProjectPicker(document.querySelector('.project-name') || projectPanel); return; }
 }
 
@@ -3110,6 +3063,8 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (helpNavHeld && (e.key === 'Enter' || e.key === ' ') && !e.repeat) { e.preventDefault(); helpNavItems[helpNavIndex].click(); return; }
+
+  if ((e.key === 'e' || e.key === 'E') && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey) { quickExportFocused(e.key === 'E'); return; }
 
   // --- Per-panel dispatch ---
   if (focusedPanel === 'projects') { dispatchProjects(e); return; }

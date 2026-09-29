@@ -1095,16 +1095,10 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
 .slide-out-bar[data-side="up"] .slide-out-chevron { bottom: calc((var(--space-12) + var(--border-width)) * -1); transform: translateX(-50%); border-top-color: var(--panel-edge-shadow-solid); }
 .slide-out-bar[data-side="down"] .slide-out-chevron { top: calc((var(--space-12) + var(--border-width)) * -1); transform: translateX(-50%); border-bottom-color: var(--panel-edge-highlight); }
 
-/* ---- Export panel (§14) ----------------------------------------------
-   A docked full-height side panel (like Project/Layers), not a floating
-   popup: opened from the Project panel's Export button, stacks flush
-   against it and pushes the tool tag over the same way Project itself
-   does. */
-#export-panel { left: var(--export-left, var(--panel-width)); }
-/* Open Project (§ project panel "Open" menu item): same slot/treatment as
-   Export: docked flush beside Project, never independently pinned, only
-   ever opened alongside it. The two never show at once (main.js closes
-   whichever isn't being opened), so sharing the slot is safe. */
+/* Open Project (§ project panel "Open" menu item): a docked full-height side
+   panel (like Project/Layers), not a floating popup: flush beside Project,
+   never independently pinned, only ever opened alongside it, and pushes the
+   tool tag over the same way Project itself does. */
 #open-project-panel { left: var(--open-project-left, var(--panel-width)); }
 /* Bottom-anchored (§ open-project-panel.js): title comes after the list in
    DOM order, so its divider needs to face the other way: a line above it
@@ -1113,9 +1107,9 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
 /* No drag-handle on these rows (unlike file rows, whose handle supplies
    the name's left clearance): needs its own. */
 #open-project-panel .file-row-name { padding-left: var(--pad); }
-/* Shared by every docked side panel that slides out next to Project
-   (Export, Open Project) rather than being one of the four primary edge
-   panels: same title-row + scrollable-body shape either way. */
+/* The docked side panel that slides out next to Project (Open Project)
+   rather than being one of the four primary edge panels: a title row plus a
+   scrollable body. */
 .side-panel-title {
   /* Literal padding, not flex-centered: see .project-name. 1em top/bottom
      plus the 1em line gives exactly 1 block, so no explicit height needed. */
@@ -1128,9 +1122,6 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
    already a block-sized (or block-row) element that carries its own
    clearance. */
 .side-panel-body { flex: 1 1 auto; display: flex; flex-direction: column; overflow-y: auto; }
-.export-btn-row { display: flex; flex-wrap: wrap; }
-.export-option { flex: 1 1 33%; }
-.export-confirm { margin-top: auto; background: var(--accent); }
 
 .open-project-empty { padding: var(--pad); color: var(--text-muted); }
 

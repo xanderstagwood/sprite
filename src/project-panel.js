@@ -147,7 +147,6 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
         // The last file can't be removed (project.js: deleteFile is a no-op
         // then anyway): a project always has at least one file.
         if (project.files.length > 1) items.push({ label: 'Remove', keys: '_', onClick: () => callbacks.onRemoveFile(fileIndex) });
-        items.push({ label: 'Export', keys: 'e', onClick: () => callbacks.onExportFile && callbacks.onExportFile(file, fileIndex) });
         openSlideOut(menuBtn, items);
       },
     });
@@ -205,7 +204,6 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
     // project always starts with exactly one, so this is the common case,
     // not an edge case: the menu button itself disables rather than
     // opening onto nothing.
-    menuItems.push({ label: 'Export', onClick: () => callbacks.onExportCollection(collection) });
     if (project.collections.length > 1) menuItems.push({ label: 'Remove', keys: '_', onClick: () => callbacks.onDeleteCollection(collection.id) });
     const menuBtn = button({
       glyph: '⋯', icon: true, className: 'row-menu', title: 'Collection menu',

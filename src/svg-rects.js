@@ -17,3 +17,10 @@ export function pushRects(parts, pixels, w, h, ox, oy, scale) {
     }
   }
 }
+
+// A whole board as a standalone SVG document, one run-length rect per colour run.
+export function svgDocument(pixels, w, h, scale = 1) {
+  const parts = [];
+  pushRects(parts, pixels, w, h, 0, 0, scale);
+  return `<svg xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" width="${w * scale}" height="${h * scale}" viewBox="0 0 ${w * scale} ${h * scale}">${parts.join('')}</svg>`;
+}

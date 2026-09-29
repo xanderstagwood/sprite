@@ -145,11 +145,7 @@ export function render(ctx, model, viewW, viewH, { showGrid, showRuler, symmetry
 const ARTBOARD_GAP = 4; // world px between cells: same value both axes, so the grid reads even
 
 // The column count is the square-ish one rounded up to an even number (never
-// more than there are artboards), so a grid never has an odd column. `gap` defaults to the on-screen grid's own
-// spacing but is a real parameter (not just the module constant) so
-// export.js's collection sheet export: which wants a fixed, unscaled 2px
-// gap regardless of what the live view uses: can reuse this exact same
-// column/row math instead of duplicating it.
+// more than there are artboards), so a grid never has an odd column.
 export function computeArtboardLayout(artboards, gap = ARTBOARD_GAP) {
   if (!artboards.length) return { cols: 0, rows: 0, cellW: 0, cellH: 0, stepX: 0, stepY: 0, totalW: 0, totalH: 0 };
   const cellW = Math.max(...artboards.map((b) => b.width));

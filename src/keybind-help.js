@@ -15,6 +15,7 @@ const GROUPS = [
     ['Ctrl+C / Ctrl+X / Ctrl+V', 'Copy / Cut / Paste'],
     ['Ctrl+A', 'Select all'],
     ['Ctrl+Space', 'Play/pause timeline'],
+    ['e / E', 'Quick / full export of the focused panel'],
     ['Ctrl(left)+Arrow', 'Focus Timeline/Layers/Colors/Projects (Up/Right/Down/Left)'],
     ['Ctrl(left)', 'Return focus to the canvas'],
   ]],
@@ -92,7 +93,6 @@ const GROUPS = [
     ['=', 'New collection'],
     ['Enter', 'Rename focused canvas/collection'],
     ['Shift+Enter', 'Rename project'],
-    ['e / E', 'Export canvas / project'],
     ['\\', 'Open project picker'],
   ]],
 ];

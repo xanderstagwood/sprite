@@ -1,7 +1,6 @@
 import { button } from './ui.js';
 
-// Open Project panel: a docked side panel next to Project (same treatment
-// as Export, § export-panel.js), not a floating slide-out menu: switching
+// Open Project panel: a docked side panel next to Project, not a floating slide-out menu: switching
 // projects is a real navigation action with its own list, not a one-off
 // pick from a handful of buttons. `projects` is the registry list (each
 // `{ id, name, updatedAt }`) minus the one currently open; `onSelect` gets

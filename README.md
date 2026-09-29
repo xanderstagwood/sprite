@@ -51,10 +51,7 @@ Plain JavaScript, HTML and CSS. No framework, no build step, no dependencies to 
 
 **Import and export**
 - Import projects, single images as canvases, spritesheets (as frames or layers), reference images and palettes
-- Export PNG, GIF and SVG at 1x to 8x, as a single image, layers, frames, a collection sheet or one file per canvas
-- **Trim** crops empty margins, keeping animation frames and layers aligned
-- **SVG outlines** merge touching pixels into clean, sharp-edged contours, handy for turning glyphs into fonts
-- Export a whole project as a single `.sprite` archive
+- **Quick export** (`e`) and **full export** (`E`) follow whatever panel has focus: PNGs at 1x/4x/8x, sprite sheets of frames or layers, an animated GIF, per-layer PNGs, SVG, palette files (`.gpl`, `.hex`, `.pal`), or the whole project as a single `.sprite` archive. With a selection, only the selection is exported
 
 **Workspace**
 - Panels reveal on hover or keyboard focus and can be pinned open
@@ -92,6 +89,7 @@ Press `?` in the app to see this list. `Ctrl`(left)+Arrow focuses a panel (Timel
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / Cut / Paste |
 | `Ctrl+A` | Select all |
 | `Ctrl+Space` (tap) | Play/pause timeline |
+| `e` / `E` | Quick / full export of the focused panel |
 | `Ctrl`(left)+Up/Right/Down/Left | Focus Timeline / Layers / Colors / Projects |
 | `Ctrl`(left) (tap alone) | Return focus to canvas |
 | `Escape` | Clear selection |
@@ -187,7 +185,6 @@ Press `?` in the app to see this list. `Ctrl`(left)+Arrow focuses a panel (Timel
 | `=` | New collection |
 | `Enter` | Rename focused canvas/collection |
 | `Shift+Enter` | Rename project |
-| `e` / `E` | Export canvas / project |
 | `\` | Open project picker |
 
 ## License
