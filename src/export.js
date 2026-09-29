@@ -53,8 +53,8 @@ async function runExport(work) {
   reportProgress({
     active: false,
     error: fixable
-      ? { short: fixable.short, detail: fixable.detail, actionable: true }
-      : { short: 'export error', detail: `Export failed: ${lastErr?.message || lastErr}`, actionable: false },
+      ? { short: fixable.short, detail: fixable.detail }
+      : { short: 'export error', detail: `Export failed: ${lastErr?.message || lastErr}` },
   });
 }
 

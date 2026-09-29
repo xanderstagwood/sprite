@@ -621,18 +621,21 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
   background: var(--accent);
   transition: width var(--dur-fast) ease;
 }
+/* Warnings and errors the user needs to see (main.js's onAlert and export
+   failure marker): white on red. `alert-pulse` blinks the text for a few
+   seconds first, for the urgent ones. */
+.tool-tag-alert {
+  background: var(--accent);
+  color: var(--text-primary);
+}
+.alert-pulse { animation: alert-pulse 0.5s ease-in-out 6; }
+@keyframes alert-pulse { 50% { color: transparent; } }
 /* Lingering export-failure marker (main.js's onExportProgress): same slot
-   sizing as .tool-tag-label, plus a click affordance. Red/white only for
-   failures worth clicking into (`--actionable`); a non-actionable failure
-   stays neutral text since there's nothing to do about it. */
+   sizing as .tool-tag-label, plus a click affordance. */
 .tool-tag-export-error {
   --cursor: click;
 }
 .tool-tag-export-error[hidden] { display: none; }
-.tool-tag-export-error--actionable {
-  background: var(--accent);
-  color: var(--text-primary);
-}
 
 /* Where an open side panel visually stacks in front of the Timeline/
    Palette (their shrunk edge butts against it): a light line on the seam, then
@@ -1312,6 +1315,7 @@ body:is([data-hint="folder"], [data-hint="menu"], [data-hint="new"]) .edge-trigg
 /* Collab button while a session waits for a second person: breathes to the accent. */
 .btn.collab-waiting { background: var(--accent); animation: nudge-pulse 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
+  .alert-pulse { animation: none; }
   .btn.collab-waiting { animation: none; opacity: 1; }
   body[data-hint] .icon, body[data-hint] .hint-target, body[data-hint] .edge-trigger-left::after { animation: none; opacity: 1; }
   body[data-hint="new"] .hint-target { background: var(--accent); }

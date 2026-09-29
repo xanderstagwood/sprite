@@ -38,7 +38,7 @@ import { createKeybindHelp } from './keybind-help.js';
 import { renderOpenProjectPanel } from './open-project-panel.js';
 import { VERSION, GITHUB_ISSUES_URL, ITCH_IO_URL, DISCORD_URL, KOFI_URL } from './version.js';
 import { loadUiPrefs, saveUiPrefs } from './ui-prefs.js';
-import { setIcon, startInlineEdit, onHoverTip, showTip, button, flashTip, pickFile } from './ui.js';
+import { setIcon, startInlineEdit, onHoverTip, onAlert, showTip, button, flashTip, pickFile } from './ui.js';
 import { decodeImage, bitmapPixels } from './image-import.js';
 import { detectGrid, buildSheetFile } from './spritesheet.js';
 import { askSheetGrid } from './spritesheet-panel.js';
@@ -156,29 +156,45 @@ exportBar.append(exportBarTrack);
 // Lingering export-failure marker: hidden while nothing has failed (or a
 // fresh export is running), shown as a short clickable label otherwise;
 // click opens a modal with the full error detail (openExportErrorModal,
-// below). Red/white styling only for failures the user can act on.
+// below).
 const exportErrorLabel = document.createElement('div');
-exportErrorLabel.className = 'tool-tag-label tool-tag-export-error';
+exportErrorLabel.className = 'tool-tag-label tool-tag-alert tool-tag-export-error';
 exportErrorLabel.hidden = true;
 exportErrorLabel.addEventListener('click', () => { if (exportError) openExportErrorModal(exportError); });
 toolTag.append(zoomIcon, zoomLabel, toolLabel, exportBar, exportErrorLabel, primarySwatch);
 
 const MODE_LABELS = { place: 'Place', paint: 'Paint', erase: 'Erase' };
 
-// A final export failure leaves a quiet marker here (cleared the moment
-// the next export starts) instead of an interrupting dialog: see
-// export.js's runExport for the retry-then-classify logic that decides
-// `actionable` (red/white, worth a click) vs. not.
+// Restarts the attention pulse on `el`: removing the class and forcing a
+// reflow lets the same animation run again.
+function pulse(el) {
+  el.classList.remove('alert-pulse');
+  void el.offsetWidth;
+  el.classList.add('alert-pulse');
+}
+
+// A final export failure leaves a marker here (cleared the moment the next
+// export starts) instead of an interrupting dialog: see export.js's
+// runExport for the retry-then-classify logic. It pulses when it appears.
 let exportError = null;
 onExportProgress((status) => {
   exportBar.hidden = !status.active;
   if (status.active) exportBarFill.style.width = Math.round((status.fraction ?? 0) * 100) + '%';
   if ('error' in status) exportError = status.error;
   exportErrorLabel.hidden = status.active || !exportError;
-  if (exportError) {
-    exportErrorLabel.textContent = exportError.short;
-    exportErrorLabel.classList.toggle('tool-tag-export-error--actionable', exportError.actionable);
-  }
+  if (exportError) exportErrorLabel.textContent = exportError.short;
+  if (status.error) pulse(exportErrorLabel);
+  updateToolTag();
+});
+
+// Warnings and errors from flashTip (ui.js) take the tool label's slot,
+// white on red, and win over a hovered button's tip.
+let alertText = null;
+onAlert((text, urgent) => {
+  alertText = text;
+  toolLabel.classList.toggle('tool-tag-alert', !!text);
+  if (text && urgent) pulse(toolLabel);
+  else toolLabel.classList.remove('alert-pulse');
   updateToolTag();
 });
 
@@ -227,7 +243,7 @@ function updateToolTag() {
     // brush/mode readout and primary-swatch are meaningless outside actual
     // editing, and the zoom % needs to read the grid's own camera, not the
     // single-file canvas's.
-    const tip = hoverTip || groupHoverTip;
+    const tip = alertText || hoverTip || groupHoverTip;
     setHidden(toolLabel, !tip); // nothing to show between artboards: don't render an empty tip section
     setText(toolLabel, tip || '');
     setHidden(primarySwatch, true);
@@ -238,7 +254,7 @@ function updateToolTag() {
     setHidden(toolLabel, false);
     const modeLabel = MODE_LABELS[inputController && inputController.getMode()] || 'Place';
     const size = brushSize;
-    setText(toolLabel, hoverTip || `${size}px ${modeLabel}${paintOptions.dither ? ' (dither)' : ''}${paintOptions.symmetry !== 'off' ? ' (mirror)' : ''}`);
+    setText(toolLabel, alertText || hoverTip || `${size}px ${modeLabel}${paintOptions.dither ? ' (dither)' : ''}${paintOptions.symmetry !== 'off' ? ' (mirror)' : ''}`);
   }
   setHidden(primarySwatch, false);
   const scale = (viewState.zoom || fitScale(model, rect.width, rect.height));

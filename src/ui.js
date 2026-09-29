@@ -27,12 +27,21 @@ export function pickFile(accept, onFile) {
   input.click();
 }
 
-// A transient message in the corner tool tag: the app's one non-modal way
-// to say "that didn't happen, and why" without a dialog.
-export function flashTip(text, ms = 3000) {
-  if (!hoverTipListener) return;
-  hoverTipListener(text);
-  setTimeout(() => hoverTipListener(null), ms);
+// The tool tag's alert slot: main.js subscribes with fn(text | null, urgent)
+// and shows the text white on red, pulsing it when `urgent`.
+let alertListener = null;
+let alertTimer = null;
+export function onAlert(fn) { alertListener = fn; }
+
+// A transient warning or error in the corner tool tag: the app's one
+// non-modal way to say "that didn't happen, and why" without a dialog. It
+// outranks a hovered button's tip. `urgent` pulses the text for a few
+// moments first, for failures the user has to notice (a failed export).
+export function flashTip(text, { ms = 3000, urgent = false } = {}) {
+  if (!alertListener) return;
+  clearTimeout(alertTimer);
+  alertListener(text, urgent);
+  alertTimer = setTimeout(() => alertListener(null, false), ms);
 }
 
 // Shared button primitive (design system: Button/Tile/Tile-bar/Panel).
