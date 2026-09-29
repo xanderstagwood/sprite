@@ -34,7 +34,7 @@ Plain JavaScript, HTML and CSS. No framework, no build step, no dependencies to 
 - Collection view shows every canvas in a collection side by side in an even number of columns
 - New canvas presets from 8x8 up to Pico-8 (128x128) and Game Boy DMG (160x144), plus custom sizes up to 256x256
 - Double click the new canvas button to duplicate the size you were last working on
-- Resize canvases from an anchor, trim to their pixels (both undoable), reorder by dragging, multi-select with Shift and Alt
+- Resize canvases from an anchor (`R`), trim to their pixels from an anchor (`T`), both undoable; reorder by dragging, multi-select with Shift and Alt; hold Backspace/Delete to remove
 - Capacity meter shows how close a project is to what a low-end machine handles comfortably
 
 **Layers and animation**
@@ -122,6 +122,9 @@ Press `?` in the app to see this list. `Ctrl`(left)+Arrow focuses a panel (Timel
 | `I` (hold) + click | Sample color from anywhere in the viewport |
 | `F` / `Shift+F` | Flip horizontal / vertical |
 | `R` / `Shift+R` (hold) + Left/Right | Rotate 1°/15° per step (accelerating hold) |
+| `Shift+R` (tap) | Resize the canvas: type W and H (`Tab` swaps, H follows W until edited) or `Up`/`Down` through the presets; `Enter` applies, `Escape` cancels. Click a pip to choose the resize anchor |
+| `T` (tap) | Trim the canvas to its pixels |
+| `T` (hold) | Dim the canvas and show the anchor pips: `Arrows` or a click choose which point holds still, letting go trims, `Escape` cancels |
 | `+` | Zoom in |
 | `-` | Zoom to 100% |
 | `=` | Zoom to fit (selection if any) |
@@ -144,7 +147,7 @@ Press `?` in the app to see this list. `Ctrl`(left)+Arrow focuses a panel (Timel
 | `Alt+`Left/Right | Move the selected frame(s) |
 | `+` | New frame |
 | `=` | Duplicate frame |
-| `Backspace`/`Delete` | Remove frame(s) |
+| Hold `Backspace`/`Delete` | Remove frame(s): the tool tag fills while held |
 | `\` | Toggle onion skin |
 | `Space` | Play/pause |
 
@@ -157,7 +160,7 @@ Press `?` in the app to see this list. `Ctrl`(left)+Arrow focuses a panel (Timel
 | `Alt+`Up/Down | Move the selected layer(s)/group(s) |
 | Left/Right | Adjust layer/group opacity |
 | `Shift+`Left/Right | Adjust opacity by 10 |
-| `Backspace`/`Delete` | Remove selected layer(s)/group(s) |
+| Hold `Backspace`/`Delete` | Remove selected layer(s)/group(s): the tool tag fills while held |
 | `+` | New layer |
 | `=` | New group |
 | `Space` | Expand/collapse focused group |
@@ -181,7 +184,8 @@ Press `?` in the app to see this list. `Ctrl`(left)+Arrow focuses a panel (Timel
 | `Space` | Fold/unfold the focused collection |
 | `+` | New canvas (opens size picker; Left/Right adjusts size, `Enter` commits, `Escape` cancels) |
 | `Alt++` | New project |
-| `_` | Remove selected canvas or collection |
+| Hold `Backspace`/`Delete` | Remove the selected canvases, or the focused collection: the tool tag fills while held |
+| `_` | Remove selected canvas or collection at once |
 | `=` | New collection |
 | `Enter` | Rename focused canvas/collection |
 | `Shift+Enter` | Rename project |

@@ -937,13 +937,6 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
 /* ---- New-File size popup: custom W x H row --------------------------- */
 .size-popup { min-width: calc(var(--block) * 4); }
 .size-row { display: flex; }
-/* The anchors icon: each cell is a block with a half-block square at its centre,
-   so the squares sit one art pixel apart like the icon's. */
-.anchor-grid { display: grid; grid-template-columns: repeat(3, var(--block)); justify-content: center; }
-.btn.anchor-cell, .btn.anchor-cell:hover { background: none; border: 0; }
-.anchor-cell::after { content: ''; width: calc(var(--block) / 2); height: calc(var(--block) / 2); background: var(--text-secondary); }
-.anchor-cell:hover::after { background: var(--text-primary); }
-.anchor-cell.selected::after { background: var(--accent); }
 .size-row input::placeholder { color: var(--text-muted); }
 /* No spin arrows: sizes are typed. */
 .size-row input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
@@ -961,6 +954,73 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
   width: 50%;
   min-width: 0;
 }
+
+/* ---- Trim and resize: the dimmed canvas, anchor pips, resize bar ------ */
+/* The same backdrop as the help modal; the corner tags stay above it. Clicking it cancels. */
+.canvas-dim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: var(--black-a0);
+  pointer-events: none;
+  transition: background var(--dur-slow) ease;
+}
+.canvas-dim.visible { background: var(--black-a60); pointer-events: auto; }
+/* Pips are placed on the canvas's corners, edges and centre by anchor-pips.js; a square each, centred on its point. */
+.anchor-pips {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-tag);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-slow) ease;
+}
+.anchor-pips.visible { opacity: 1; }
+.anchor-pip {
+  position: absolute;
+  width: var(--block);
+  height: var(--block);
+  margin: calc(var(--block) / -2) 0 0 calc(var(--block) / -2);
+  transition: width var(--dur-fast) ease, height var(--dur-fast) ease, margin var(--dur-fast) ease;
+  padding: 0;
+  background: var(--text-secondary);
+  border: var(--border-width) solid var(--black);
+  pointer-events: none;
+  --cursor: click;
+}
+.anchor-pips.visible .anchor-pip { pointer-events: auto; }
+.anchor-pips.measuring .anchor-pip { transition: none; }
+.anchor-pip:hover { background: var(--text-primary); }
+.anchor-pip.selected { background: var(--accent); }
+/* The tool tag's resize section (resize-bar.js) and the preset sizes stacked over it. */
+.resize-bar { gap: var(--space-4); }
+.resize-bar[hidden] { display: none; }
+.resize-bar input {
+  background: var(--bg-base);
+  border: var(--border-width) solid var(--border-strong);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--font-body);
+  padding: var(--space-2) var(--space-4);
+  width: 6ch;
+  min-width: 0;
+  outline: none;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.resize-bar input::-webkit-inner-spin-button, .resize-bar input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.resize-bar input::placeholder { color: var(--text-muted); }
+.resize-presets {
+  position: fixed;
+  z-index: var(--z-tag);
+  display: flex;
+  flex-direction: column;
+  width: max-content; /* as wide as the largest option */
+}
+.resize-presets[hidden] { display: none; }
+/* Left-aligned like the slide-out menus, with room to the left of the labels. */
+.resize-presets .btn { padding: 0 var(--pad) 0 calc(var(--pad) * 2); }
+.resize-presets .btn--fill { justify-content: flex-start; min-width: 0; }
 
 /* ---- Project panel (§7) --------------------------------------------- */
 .project-header {
@@ -1294,8 +1354,6 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
 .fold-arrow:hover,
 .collection-header.selected:hover .fold-arrow, .layer-group-header.selected:hover .fold-arrow { color: var(--text-primary); }
 /* The project icon labels the project header: an icon, not a button. */
-/* A row's menu button is a bare icon like the grab handle and fold arrow: no bevel or fill (the icon's own colours are the .icon--menu rules). */
-.btn.row-menu, .btn.row-menu:hover, .btn.row-menu:active { background: none; border-width: 0; }
 /* First-run hints (main.js setHint): body[data-hint] names the one control that breathes between its dim colour and the
    accent. While the project panel is shut, a short accent bar at the foot of its edge, on the left, does the same.
    With reduced motion the pulse is off and the control stays solid accent. */

@@ -1,9 +1,10 @@
-import { renameFile, NEW_FILE_SIZES, MIN_CANVAS, MAX_CANVAS, clampCanvasSize, projectOrder, projectLoad, projectLoadBreakdown, formatBytes } from './project.js';
+import { renameFile, NEW_FILE_SIZES, clampCanvasSize, projectOrder, projectLoad, projectLoadBreakdown, formatBytes } from './project.js';
 import { visibleOrder } from './ordering.js';
 import { openSlideOut, openCustomSlideOut, closeSlideOut } from './slide-out.js';
 import { overText } from './text-hit.js';
 import { button, setIcon, hoverTip, makeReorderable, startInlineEdit } from './ui.js';
 import { iconElement } from './icons.js';
+import { sizeFields } from './size-fields.js';
 
 // Project panel (ui-design-system §7, design-doc §13). `state` is the
 // { project } holder in main.js; callbacks mutate it and call onChange to
@@ -135,23 +136,7 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
       startInlineEdit(nameEl, file.name, (v) => { if (v) { renameFile(project, file, v); callbacks.onChange({ scrollToFileIndex: fileIndex }); } });
     });
 
-    // Every per-file action folds into one menu instead of its own
-    // always-reserved button slot.
-    const menuBtn = button({
-      glyph: '⋯', icon: true, className: 'row-menu', title: 'Canvas menu',
-      onClick: (e) => {
-        e.stopPropagation();
-        const items = [
-          { label: 'Resize', onClick: () => openSizePopup(menuBtn, (w, h, _preset, where) => callbacks.onResizeFile(file, w, h, where), { anchored: true, onTrim: () => callbacks.onTrimFile(file) }) },
-        ];
-        // The last file can't be removed (project.js: deleteFile is a no-op
-        // then anyway): a project always has at least one file.
-        if (project.files.length > 1) items.push({ label: 'Remove', keys: '_', onClick: () => callbacks.onRemoveFile(fileIndex) });
-        openSlideOut(menuBtn, items);
-      },
-    });
-
-    row.append(handle, nameEl, menuBtn);
+    row.append(handle, nameEl);
     return row;
   }
 
@@ -196,22 +181,7 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
       startInlineEdit(nameEl, collection.name, (v) => { if (v) { collection.name = v; callbacks.onChange({ scrollToCollectionId: collection.id }); } });
     });
 
-    // Every per-collection action folds into one menu instead of its own
-    // always-reserved button slot.
-    const menuItems = [];
-    // The last collection can't be deleted (project.js: deleteCollection is
-    // a no-op then anyway): there's nowhere left for its files to go. A
-    // project always starts with exactly one, so this is the common case,
-    // not an edge case: the menu button itself disables rather than
-    // opening onto nothing.
-    if (project.collections.length > 1) menuItems.push({ label: 'Remove', keys: '_', onClick: () => callbacks.onDeleteCollection(collection.id) });
-    const menuBtn = button({
-      glyph: '⋯', icon: true, className: 'row-menu', title: 'Collection menu',
-      disabled: menuItems.length === 0,
-      onClick: (e) => { e.stopPropagation(); openSlideOut(menuBtn, menuItems); },
-    });
-
-    row.append(handle, nameEl, arrow, menuBtn);
+    row.append(handle, nameEl, arrow);
     return row;
   }
 
@@ -278,67 +248,23 @@ function buildCapacityMeter(project, callbacks) {
 // ascending order), so the picker's bottom-to-top reading is small-to-large
 // working up from the anchor it slides out of. The bottom row is a custom
 // W x H pair. `onPick(w, h, preset)`: `preset` is null for a custom size.
-// `onCollection` and `onImport`, when given, add a "Collection" and a last "Import" row (new canvas only).
-// `anchored` (resize only) adds an anchor picker under the custom size and passes the chosen anchor as `onPick`'s fourth argument.
-// `onTrim` (resize only) adds a "Trim" row, between the presets and the custom size, that fits the canvas to its pixels.
-export function openSizePopup(anchor, onPick, { onDismiss, onCollection, onImport, anchored = false, onTrim } = {}) {
+// `onCollection` and `onImport`, when given, add a "Collection" and a last "Import" row.
+export function openSizePopup(anchor, onPick, { onDismiss, onCollection, onImport } = {}) {
   return openCustomSlideOut(anchor, (bar, close) => {
-    let where = 'bl';
     for (const preset of [...NEW_FILE_SIZES].reverse()) {
-      bar.append(button({ label: preset.label, fill: true, onClick: () => { onPick(preset.w, preset.h, preset, where); close(); } }));
+      bar.append(button({ label: preset.label, fill: true, onClick: () => { onPick(preset.w, preset.h, preset); close(); } }));
     }
-    if (onTrim) bar.append(button({ label: 'Trim', fill: true, title: 'Fit to pixels', onClick: () => { close(); onTrim(); } }));
-    bar.append(customSizeRow((w, h) => { onPick(w, h, null, where); close(); }));
-    if (anchored) bar.append(anchorPicker((key) => { where = key; }));
+    bar.append(customSizeRow((w, h) => { onPick(w, h, null); close(); }));
     if (onCollection) bar.append(button({ label: 'Collection', fill: true, onClick: () => { close(); onCollection(); } }));
     if (onImport) bar.append(button({ label: 'Import', fill: true, title: 'Spritesheet or .sprite', onClick: () => { close(); onImport(); } }));
   }, { className: 'size-popup', onDismiss });
 }
 
-// The anchors icon as a control: five squares on a 3x3 grid, one per corner plus
-// the centre, of which the selected one (bottom left to start) is coloured. Says
-// where a resize keeps the existing pixels. `onChange(key)` receives a
-// `RESIZE_ANCHORS` key.
-const ANCHOR_CELLS = [['tl', 'Top left'], null, ['tr', 'Top right'], null, ['c', 'Center'], null, ['bl', 'Bottom left'], null, ['br', 'Bottom right']];
-function anchorPicker(onChange) {
-  const grid = document.createElement('div');
-  grid.className = 'anchor-grid';
-  const cells = new Map();
-  for (const cell of ANCHOR_CELLS) {
-    if (!cell) { grid.append(document.createElement('div')); continue; }
-    const [key, title] = cell;
-    const el = button({ label: '', title, className: 'anchor-cell', selected: key === 'bl', onClick: () => {
-      cells.forEach((other, k) => other.classList.toggle('selected', k === key));
-      onChange(key);
-    } });
-    cells.set(key, el);
-    grid.append(el);
-  }
-  return grid;
-}
-
-// Two number fields (Tab between them) and Enter to commit. H mirrors W
-// until it's been edited by hand, so a square stays one keystroke.
+// Two number fields (Tab between them) and Enter to commit.
 function customSizeRow(onSubmit) {
   const row = document.createElement('div');
   row.className = 'size-row';
-  const field = (title) => {
-    const el = document.createElement('input');
-    el.type = 'number';
-    el.min = MIN_CANVAS;
-    el.max = MAX_CANVAS;
-    el.title = title;
-    el.placeholder = 'px';
-    return el;
-  };
-  const w = field('W'), h = field('H');
-  let hEdited = false;
-  // Typing past the ceiling snaps the text itself down to it.
-  for (const el of [w, h]) el.addEventListener('input', () => { if (Number(el.value) > MAX_CANVAS) el.value = MAX_CANVAS; });
-  // Below the minimum only snaps once the field is left: a keystroke check would turn the 1 of "16" into 3.
-  for (const el of [w, h]) el.addEventListener('blur', () => { if (el.value && Number(el.value) < MIN_CANVAS) el.value = MIN_CANVAS; });
-  h.addEventListener('input', () => { hEdited = true; });
-  w.addEventListener('input', () => { if (!hEdited) h.value = w.value; });
+  const { w, h } = sizeFields();
   const submit = (e) => {
     if (e.key !== 'Enter') return;
     onSubmit(clampCanvasSize(w.value), clampCanvasSize(h.value || w.value));
@@ -348,4 +274,3 @@ function customSizeRow(onSubmit) {
   row.append(w, h);
   return row;
 }
-

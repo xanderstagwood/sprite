@@ -318,10 +318,15 @@ export function reorderFrame(file, from, to) {
   if (file.activeFrameIndex === from) file.activeFrameIndex = to;
 }
 
-// Where the existing pixels sit in the resized canvas, as [horizontal, vertical]
-// fractions of the free space (0 = start edge, 1 = end edge): bottom left, top
-// left, top right, bottom right or centre.
-export const RESIZE_ANCHORS = { bl: [0, 1], tl: [0, 0], tr: [1, 0], br: [1, 1], c: [0.5, 0.5] };
+// Where the existing pixels sit in the resized canvas, and which sides a trim
+// keeps its margin on, as [horizontal, vertical] fractions of the free space
+// (0 = start edge, 1 = end edge): the four corners, the four edge midpoints and
+// the centre.
+export const RESIZE_ANCHORS = {
+  tl: [0, 0], t: [0.5, 0], tr: [1, 0],
+  l: [0, 0.5], c: [0.5, 0.5], r: [1, 0.5],
+  bl: [0, 1], b: [0.5, 1], br: [1, 1],
+};
 
 // Rebuilds every buffer at exactly the new size, with the visible pixels placed
 // at `anchor` and whatever falls outside cropped. Pixels outside the old visible
@@ -332,18 +337,26 @@ export function resizeCanvas(file, newW, newH, anchor = 'bl') {
 }
 
 // Resizes to the box holding every placed pixel of every layer and frame, hidden
-// layers included, but never below `min` on a side. Returns false, changing
-// nothing, when the canvas is empty or already fits.
-export function trimCanvas(file, min) {
+// layers included, but never below `min` on a side. `anchor` picks the sides
+// that keep their empty margin: a side is trimmed only when it faces away from
+// the anchor (the centre trims all four; an edge anchor trims the other axis
+// from both ends). Returns false, changing nothing, when the canvas is empty
+// or already fits.
+export function trimCanvas(file, min, anchor = 'c') {
   const w = file.visibleWidth, h = file.visibleHeight;
   let box = null;
   for (const frame of file.frames) {
     for (const pixels of frame.layerPixels) box = unionBounds(box, indexedBounds(pixels, file.canvasWidth, w, h));
   }
   if (!box) return false;
-  // A box under the minimum grows toward the far edge, or back from it at the border.
-  const x0 = Math.max(0, Math.min(box.x0, w - min)), y0 = Math.max(0, Math.min(box.y0, h - min));
-  const newW = Math.max(min, box.x1 - x0), newH = Math.max(min, box.y1 - y0);
+  const [fx, fy] = RESIZE_ANCHORS[anchor];
+  // The span kept on one axis. A span under the minimum grows toward the far edge, or back from it at the border.
+  const span = (lo, hi, len, f) => {
+    const start = Math.max(0, Math.min(f === 0 ? 0 : lo, len - min));
+    return [start, Math.max(min, (f === 1 ? len : hi) - start)];
+  };
+  const [x0, newW] = span(box.x0, box.x1, w, fx);
+  const [y0, newH] = span(box.y0, box.y1, h, fy);
   if (newW === w && newH === h) return false;
   rebuildCanvas(file, newW, newH, -x0, -y0);
   return true;

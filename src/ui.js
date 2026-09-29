@@ -44,6 +44,19 @@ export function flashTip(text, { ms = 3000, urgent = false } = {}) {
   alertTimer = setTimeout(() => alertListener(null, false), ms);
 }
 
+// The tool tag's notice slot: main.js subscribes with fn(text | null).
+let noticeListener = null;
+let noticeTimer = null;
+export function onNotice(fn) { noticeListener = fn; }
+
+/** Names a one-shot tool in the tool tag for a moment as it fires (magic wand, color pick...), in plain text unlike flashTip's alerts. */
+export function popTool(text, ms = 1000) {
+  if (!noticeListener) return;
+  clearTimeout(noticeTimer);
+  noticeListener(text);
+  noticeTimer = setTimeout(() => noticeListener(null), ms);
+}
+
 // Shared button primitive (design system: Button/Tile/Tile-bar/Panel).
 // Every clickable control in the app: icon button, text button, tab,
 // toggle: is one of these, so hover/active/focus/selected states and

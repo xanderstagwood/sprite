@@ -20,7 +20,7 @@ import {
   addFrame, deleteFrame, duplicateFrame, reorderFrame, ghostSource,
   addLayerGroup, deleteLayerGroup, layerOrder, moveLayerItem,
 } from './sprite-file.js';
-import { renderProjectPanel, openSizePopup } from './project-panel.js';
+import { renderProjectPanel } from './project-panel.js';
 import { renderLayersPanel } from './layers-panel.js';
 import { renderTimelinePanel } from './timeline-panel.js';
 import { connectFolder } from './storage.js';
@@ -38,7 +38,7 @@ import { createKeybindHelp } from './keybind-help.js';
 import { renderOpenProjectPanel } from './open-project-panel.js';
 import { VERSION, GITHUB_URL, GITHUB_ISSUES_URL, DISCORD_URL, KOFI_URL } from './version.js';
 import { loadUiPrefs, saveUiPrefs } from './ui-prefs.js';
-import { setIcon, startInlineEdit, onHoverTip, onAlert, showTip, button, flashTip, pickFile } from './ui.js';
+import { setIcon, startInlineEdit, onHoverTip, onAlert, onNotice, popTool, showTip, button, flashTip, pickFile } from './ui.js';
 import { decodeImage, bitmapPixels } from './image-import.js';
 import { detectGrid, buildSheetFile } from './spritesheet.js';
 import { askSheetGrid } from './spritesheet-panel.js';
@@ -47,6 +47,9 @@ import { isImageFile } from './image-import.js';
 import { addReference, removeReference, reorderReference, resolveReference, drawableReferences, referencesOf } from './references.js';
 import { quickExport, onExportProgress } from './export.js';
 import { slideWidth, fadeText } from './tag-motion.js';
+import { createAnchorPips, anchorName } from './anchor-pips.js';
+import { createResizeBar } from './resize-bar.js';
+import { createHold } from './hold.js';
 import { debugAlerts } from './debug-alerts.js'; // DEBUG
 import { planCanvas, planTimeline, planLayers, planColors, planProject } from './export-plan.js';
 import { unzipSync } from 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
@@ -169,7 +172,23 @@ const exportErrorLabel = document.createElement('div');
 exportErrorLabel.className = 'tool-tag-label tool-tag-alert tool-tag-export-error';
 exportErrorLabel.hidden = true;
 exportErrorLabel.addEventListener('click', () => { if (exportError) openExportErrorModal(exportError); });
-toolTag.append(zoomIcon, zoomLabel, toolLabel, exportBar, exportErrorLabel, primarySwatch);
+// Holding Backspace/Delete on a panel fills this bar beside "removing:"; full, it removes (holdRemove, below).
+const removeBar = document.createElement('div');
+removeBar.className = 'tool-tag-export';
+removeBar.hidden = true;
+const removeTrack = document.createElement('div');
+removeTrack.className = 'tool-tag-export-track';
+const removeFill = document.createElement('div');
+removeFill.className = 'tool-tag-export-fill';
+removeTrack.append(removeFill);
+removeBar.append(removeTrack);
+// [R]: "resize: W: px | H: px" takes the tool section's place, with the preset sizes stacked over it.
+const resizeBar = createResizeBar({
+  onCommit: (w, h) => finishResize(w, h),
+  onCancel: () => closeResize(),
+});
+toolTag.append(zoomIcon, zoomLabel, toolLabel, resizeBar.el, exportBar, removeBar, exportErrorLabel, primarySwatch);
+document.body.append(resizeBar.stack);
 
 const MODE_LABELS = { place: 'Place', paint: 'Paint', erase: 'Erase', selectRect: 'Select', rectangle: 'Rectangle', triangle: 'Triangle', circle: 'Circle', fill: 'Fill' };
 
@@ -194,6 +213,14 @@ onExportProgress((status) => {
   if (status.error) pulse(exportErrorLabel);
   updateToolTag();
 });
+
+// A mode in progress that owns the tool label (choosing a trim anchor); a running removal and alerts outrank it.
+let modeText = null;
+// Progress of a held Backspace/Delete, 0..1, or null when none is running.
+let removeFraction = null;
+// One-shot tools name themselves here as they fire (popTool, ui.js); an alert still outranks them.
+let noticeText = null;
+onNotice((text) => { noticeText = text; updateToolTag(); });
 
 // Warnings and errors from flashTip (ui.js) take the tool label's slot,
 // white on red, and win over a hovered button's tip.
@@ -251,10 +278,12 @@ function updateToolTag() {
 
 function paintToolTag() {
   const rect = canvasRect;
+  setHidden(removeBar, removeFraction === null);
+  const override = alertText || (removeFraction !== null ? 'removing:' : null) || modeText || noticeText;
   // An export in progress takes over the label slot with the progress bar
   // (already shown/hidden by the onExportProgress subscription above):
   // nothing else competes for it while that's up.
-  if (!exportBar.hidden) {
+  if (!exportBar.hidden || resizeBar.isOpen()) {
     setHidden(toolLabel, true);
   } else if (activeGroupId) {
     // The group grid (§ project panel group select) has no active tool or
@@ -262,7 +291,7 @@ function paintToolTag() {
     // brush/mode readout and primary-swatch are meaningless outside actual
     // editing, and the zoom % needs to read the grid's own camera, not the
     // single-file canvas's.
-    const tip = alertText || hoverTip || groupHoverTip;
+    const tip = override || hoverTip || groupHoverTip;
     setHidden(toolLabel, !tip); // nothing to show between artboards: don't render an empty tip section
     if (tip) fadeToolLabel(tip); else setText(toolLabel, '');
     setHidden(primarySwatch, true);
@@ -271,9 +300,10 @@ function paintToolTag() {
     return;
   } else {
     setHidden(toolLabel, false);
-    const modeLabel = MODE_LABELS[inputController && inputController.getMode()] || 'Place';
-    const size = brushSize;
-    fadeToolLabel(alertText || hoverTip || `${size}px ${modeLabel}${paintOptions.dither ? ' (dither)' : ''}${paintOptions.symmetry !== 'off' ? ' (mirror)' : ''}`);
+    // The line tool and the dropper have no mode (or cursor) of their own in the input controller.
+    const modeLabel = heldD ? 'Dropper' : rotating ? 'Rotate' : shapeState && shapeState.key === 'line' ? 'Line' : MODE_LABELS[inputController && inputController.getMode()] || 'Place';
+    const sized = modeLabel === 'Place' || modeLabel === 'Paint'; // the other tools ignore the brush size
+    fadeToolLabel(override || hoverTip || `${sized ? `${brushSize}px ` : ''}${modeLabel}${paintOptions.dither ? ' (dither)' : ''}${paintOptions.symmetry !== 'off' ? ' (mirror)' : ''}`);
   }
   setHidden(primarySwatch, false);
   const scale = (viewState.zoom || fitScale(model, rect.width, rect.height));
@@ -951,6 +981,7 @@ function computeOnionFrames(file) {
 
 const palette = createPalette(paletteBar, project.palette, () => autosave(), (hex) => {
   selectionApi.set(maskFromColor(model, hex));
+  popTool('Select color');
   draw();
 }, () => project.name);
 const colors = { primary: () => palette.getPrimary() };
@@ -1017,6 +1048,13 @@ async function stepHistory(step) {
   // what it did has to be streamed like any other edit.
   const cmd = (step === undoCmd ? file.undoStack : file.redoStack).at(-1);
   if (!step(file, model)) return;
+  // A trim or resize of several canvases at once is one step: the rest of its group follow.
+  if (cmd.group) {
+    for (const other of project.files) {
+      const top = other !== file && (step === undoCmd ? other.undoStack : other.redoStack).at(-1);
+      if (top && top.group === cmd.group) { await ensureAllFramesLoaded(other); step(other, null); autosave(other); }
+    }
+  }
   if (cmd.type === 'layers' || cmd.type === 'resize') structureChanged();
   else strokeSync?.sendStroke({ type: cmd.type, after: step === undoCmd ? cmd.before : cmd.after }, { fileId: file.name, frame: file.activeFrameIndex, layer: file.activeLayerIndex, colors: file.colors });
   bindActiveFile();
@@ -1028,19 +1066,19 @@ async function stepHistory(step) {
 // steps in the stack (which address pixels in the old layout) stay valid.
 // Every frame must be raw first: resizeCanvas rebuilds every frame's
 // buffers, not just the active one's (§ frame-cache.js's hot window).
-async function resizeWithUndo(file, w, h, anchor) {
+async function resizeWithUndo(file, w, h, anchor, group) {
   await ensureAllFramesLoaded(file);
   const before = snapshotResize(file);
   resizeCanvas(file, w, h, anchor);
-  commitCommand(file, { type: 'resize', before, after: snapshotResize(file) });
+  commitCommand(file, { type: 'resize', before, after: snapshotResize(file), group });
 }
 
-// Fits `file` to its placed pixels as one undo step; false if there was nothing to trim.
-async function trimWithUndo(file) {
+// Fits `file` to its placed pixels (keeping the margin on the `anchor` sides) as one undo step; false if there was nothing to trim.
+async function trimWithUndo(file, anchor, group) {
   await ensureAllFramesLoaded(file); // trimCanvas reads every frame's pixels to find the bounding box
   const before = snapshotResize(file);
-  if (!trimCanvas(file, MIN_CANVAS)) return false;
-  commitCommand(file, { type: 'resize', before, after: snapshotResize(file) });
+  if (!trimCanvas(file, MIN_CANVAS, anchor)) return false;
+  commitCommand(file, { type: 'resize', before, after: snapshotResize(file), group });
   return true;
 }
 
@@ -1381,20 +1419,6 @@ function redrawProjectPanel() {
       const ref = mostRecentFileIn(project);
       commitNewFile(ref ? ref.visibleWidth : DEFAULT_CANVAS_SIZE, ref ? ref.visibleHeight : DEFAULT_CANVAS_SIZE);
     },
-    onResizeFile: async (file, w, h, anchor) => {
-      await ensureLoaded(file);
-      await resizeWithUndo(file, w, h, anchor);
-      if (file === getActiveFile(project)) { bindActiveFile(); resetView(); selectionApi.clear(); } // a selection mask is sized for the old canvas
-      redrawProjectPanel();
-      draw();
-      autosave();
-    },
-    onTrimFile: async (file) => {
-      await ensureLoaded(file);
-      if (!(await trimWithUndo(file))) { flashTip('Nothing to trim'); return; }
-      if (file === getActiveFile(project)) { bindActiveFile(); resetView(); selectionApi.clear(); }
-      redrawProjectPanel(); draw(); autosave();
-    },
     onReorder: (from, to) => { moveProjectItem(project, from, to); redrawProjectPanel(); draw(); autosave(); },
     onRemoveFile: (i) => {
       deleteFile(project, i);
@@ -1402,12 +1426,6 @@ function redrawProjectPanel() {
       autosave();
     },
     onAddCollection: () => { addCollection(project); redrawProjectPanel(); autosave(); },
-    onDeleteCollection: (id) => {
-      deleteCollection(project, id);
-      if (activeGroupId === id) { setActiveGroup(null); draw(); }
-      redrawProjectPanel();
-      autosave();
-    },
     onOpenProject: (anchor) => openProjectPicker(anchor),
     workDirName: backend.name,
     onReadBackupWarning: () => setHint('menu'),
@@ -1445,7 +1463,7 @@ function shiftSelectFile(targetIndex) {
   const a = members.indexOf(currentFile), b = members.indexOf(targetFile);
   const lo = Math.min(a, b), hi = Math.max(a, b);
   fileSelection = new Set(members.slice(lo, hi + 1).map((f) => project.files.indexOf(f)));
-  openFileSelectionMenu(targetIndex);
+  redrawProjectPanel();
 }
 
 // Alt+click a file (§ buildFileRow): add it to whatever's already
@@ -1454,51 +1472,7 @@ function shiftSelectFile(targetIndex) {
 function altSelectFile(targetIndex) {
   if (!fileSelection) fileSelection = new Set([project.activeFileIndex]);
   fileSelection.add(targetIndex);
-  openFileSelectionMenu(targetIndex);
-}
-
-// Clicking away from a multi-select menu without picking anything collapses
-// the selection back down too: passed as every such menu's `onDismiss`.
-function dismissFileSelection() {
-  fileSelection = null;
   redrawProjectPanel();
-}
-
-// Resize/Export/Remove all for the whole multi-selection, anchored (chevron
-// included, same as every other row menu) at whichever file was most
-// recently added to it: the same "⋯" menu shape a single file gets, just
-// scoped wider. Every action ends the multi-select the same way dismissing
-// it does: the menu was for this one operation.
-function openFileSelectionMenu(lastAddedIndex) {
-  redrawProjectPanel();
-  const anchor = projectPanel.querySelector(`[data-file-index="${lastAddedIndex}"]`);
-  if (!anchor || !fileSelection) return;
-  const files = [...fileSelection].map((i) => project.files[i]).filter(Boolean);
-  openSlideOut(anchor, [
-    { label: 'Resize', onClick: () => openMultiResizePopup(anchor, files) },
-    { label: 'Remove all', onClick: () => removeSelectedFiles(files) },
-  ], { onDismiss: dismissFileSelection });
-}
-
-function openMultiResizePopup(anchor, files) {
-  openSizePopup(anchor, async (w, h, _preset, where) => {
-    await Promise.all(files.map(ensureLoaded));
-    for (const file of files) {
-      await resizeWithUndo(file, w, h, where);
-    }
-    fileSelection = null;
-    bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw(); autosave();
-  }, {
-    onDismiss: dismissFileSelection,
-    anchored: true,
-    onTrim: async () => {
-      await Promise.all(files.map(ensureLoaded));
-      const trimmed = (await Promise.all(files.map(trimWithUndo))).filter(Boolean).length;
-      fileSelection = null;
-      if (!trimmed) flashTip('Nothing to trim');
-      bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw(); autosave();
-    },
-  });
 }
 
 // Descending index order: deleting high indices first means earlier ones
@@ -1510,6 +1484,139 @@ function removeSelectedFiles(files) {
   fileSelection = null;
   bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw();
   autosave();
+}
+
+// --- Trim ([T]) and resize ([R]) -------------------------------------------
+// Both act on the multi-selected canvases, else on the active one. Each keeps
+// its own anchor: which point of the canvas holds still. Trim: tap T to trim
+// now, or hold it for a moment to dim the canvas and pick the anchor on the
+// pips (Arrows or a click), and let go to trim; Escape lets go without
+// trimming. Resize: tap Shift+R (holding it with arrows still rotates) for the resize bar.
+const anchors = { trim: 'c', resize: 'bl' };
+const ANCHOR_HOLD_MS = 250;
+let anchorUi = null; // { kind: 'trim' | 'resize', shown, timer } while either is up
+
+const dim = document.createElement('div');
+dim.className = 'canvas-dim';
+dim.addEventListener('pointerdown', () => { if (anchorUi && anchorUi.kind === 'resize') closeResize(); });
+const pips = createAnchorPips((key) => {
+  if (!anchorUi) return;
+  anchors[anchorUi.kind] = key;
+  if (anchorUi.kind === 'trim') { modeText = `anchor: ${anchorName(key)}`; updateToolTag(); }
+});
+document.body.append(dim, pips.el);
+
+function editTargets() {
+  return fileSelection && fileSelection.size ? [...fileSelection].map((i) => project.files[i]).filter(Boolean) : [getActiveFile(project)];
+}
+
+function showAnchors(kind) {
+  const r = canvas.getBoundingClientRect();
+  const vp = computeViewport(model, r.width, r.height);
+  dim.classList.add('visible');
+  pips.show({ left: r.left + vp.ox, top: r.top + vp.oy, width: model.width * vp.scale, height: model.height * vp.scale }, anchors[kind]);
+}
+
+function hideAnchors() {
+  dim.classList.remove('visible');
+  pips.hide();
+  modeText = null;
+  updateToolTag();
+}
+
+function beginTrim() {
+  if (activeGroupId || anchorUi) return;
+  anchorUi = { kind: 'trim', shown: false, timer: setTimeout(() => {
+    anchorUi.shown = true;
+    modeText = `anchor: ${anchorName(anchors.trim)}`;
+    showAnchors('trim');
+    updateToolTag();
+  }, ANCHOR_HOLD_MS) };
+}
+
+function endTrim(commit) {
+  if (!anchorUi || anchorUi.kind !== 'trim') return;
+  clearTimeout(anchorUi.timer);
+  const { shown } = anchorUi;
+  anchorUi = null;
+  if (shown) hideAnchors();
+  if (commit) trimFiles(editTargets(), anchors.trim);
+}
+
+async function trimFiles(files, anchor) {
+  await Promise.all(files.map(ensureLoaded));
+  let trimmed = 0;
+  const group = files.length > 1 ? crypto.randomUUID() : undefined; // one undo step across the canvases
+  for (const file of files) if (await trimWithUndo(file, anchor, group)) trimmed++;
+  if (!trimmed) { flashTip('Nothing to trim'); return; }
+  bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw(); autosave(); // a selection mask is sized for the old canvas
+  popTool('Trim');
+}
+
+function openResize() {
+  if (activeGroupId || anchorUi) return;
+  const file = getActiveFile(project);
+  anchorUi = { kind: 'resize', shown: true };
+  showAnchors('resize');
+  resizeBar.open(file.visibleWidth, file.visibleHeight);
+  slideTag();
+  updateToolTag();
+}
+
+function closeResize() {
+  anchorUi = null;
+  resizeBar.close();
+  hideAnchors();
+  slideTag();
+  if (document.activeElement) document.activeElement.blur();
+}
+
+async function finishResize(w, h) {
+  const anchor = anchors.resize, files = editTargets();
+  closeResize();
+  await Promise.all(files.map(ensureLoaded));
+  const group = files.length > 1 ? crypto.randomUUID() : undefined; // one undo step across the canvases
+  for (const file of files) await resizeWithUndo(file, w, h, anchor, group);
+  bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw(); autosave();
+  popTool(`Resized ${w}x${h}`);
+}
+
+// --- Hold Backspace/Delete to remove ---------------------------------------
+// Panels remove what is selected only after the key has been held long enough
+// to fill the bar in the tool tag; letting go early cancels.
+const REMOVE_HOLD_MS = 700;
+let pendingRemove = null;
+const removeHold = createHold(REMOVE_HOLD_MS, (fraction) => {
+  if (fraction !== null) removeFill.style.width = Math.round(fraction * 100) + '%';
+  const changed = (fraction === null) !== (removeFraction === null);
+  removeFraction = fraction;
+  if (changed) updateToolTag();
+}, () => {
+  const action = pendingRemove;
+  pendingRemove = null;
+  if (action) action();
+});
+function holdRemove(action) {
+  if (removeHold.active) return;
+  pendingRemove = action;
+  removeHold.start();
+}
+
+// What Backspace/Delete removes in the Projects panel: the multi-selected
+// canvases, else the focused collection, else the active canvas.
+function removeProjectSelection() {
+  const collectionId = focusedCollectionId() || activeGroupId;
+  if (fileSelection && fileSelection.size) {
+    removeSelectedFiles([...fileSelection].map((i) => project.files[i]).filter(Boolean));
+    return;
+  }
+  if (collectionId && project.collections.some((c) => c.id === collectionId)) {
+    deleteCollection(project, collectionId);
+    if (activeGroupId === collectionId) setActiveGroup(null);
+  } else {
+    deleteFile(project, project.activeFileIndex);
+  }
+  bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw(); autosave();
 }
 
 // The collection header currently under keyboard focus (Tab held, Up/Down
@@ -2291,6 +2398,7 @@ function doPaste() {
 
 // Flips the selection if one exists, otherwise the whole active layer.
 function doFlip(axis) {
+  popTool(axis === 'horizontal' ? 'Flip horizontal' : 'Flip vertical');
   const mask = selectionMask || fullMask(model);
   const snapshot = snapshotPixels(model);
   flip(model, mask, axis);
@@ -2303,6 +2411,7 @@ function doFlip(axis) {
 // handler already gates every canvas edit key on !activeGroupId: the
 // read-only group grid has no cursor/selection of its own to invert).
 function invertColors() {
+  popTool('Invert');
   const snapshot = snapshotPixels(model);
   const invertAt = (x, y, mask) => {
     const hex = getPixel(model, x, y);
@@ -2666,6 +2775,7 @@ function dispatchCanvas(e) {
     if (held.shift) { // Shift+Space: magic wand at cursor
       const c = currentCursor();
       selectionApi.set(maskFromWand(model, c.x, c.y));
+      popTool('Magic wand');
       draw();
       return;
     }
@@ -2677,7 +2787,7 @@ function dispatchCanvas(e) {
   if ((e.key === 'c' || e.key === 'C') && e.shiftKey && !e.repeat) { // Shift+C: select same color under cursor
     const c = currentCursor();
     const hex = getPixel(model, c.x, c.y);
-    if (hex) { selectionApi.set(maskFromColor(model, hex)); draw(); }
+    if (hex) { selectionApi.set(maskFromColor(model, hex)); popTool('Select color'); draw(); }
     return;
   }
   if (e.key in DIGIT_INDEX) { palette.setPrimaryByIndex(DIGIT_INDEX[e.key]); return; }
@@ -2705,6 +2815,7 @@ function dispatchCanvas(e) {
     const c = currentCursor();
     const hex = getPixel(model, c.x, c.y);
     if (hex) palette.pickColor(hex);
+    popTool('Pick color');
     setHeldD(true); // arms hold-Shift+I+click to add any color under the mouse, anywhere in the viewport
     return;
   }
@@ -2774,15 +2885,17 @@ function dispatchTimeline(e) {
   }
   if (e.key === '+' && !e.repeat) { addFrame(file); afterFrameChange(file); return; }
   if (e.key === '=' && !e.repeat) { duplicateFrame(file, file.activeFrameIndex); afterFrameChange(file); return; }
-  if ((e.key === 'Backspace' || e.key === 'Delete') && !e.repeat) {
-    const range = frameSelection.getRange();
-    if (range) {
-      for (let i = range.hi; i >= range.lo; i--) deleteFrame(file, i); // high-to-low so earlier deletes don't shift later indices
-      frameSelection.clear();
-    } else {
-      deleteFrame(file, file.activeFrameIndex);
-    }
-    afterFrameChange(file);
+  if (e.key === 'Backspace' || e.key === 'Delete') {
+    if (!e.repeat) holdRemove(() => {
+      const range = frameSelection.getRange();
+      if (range) {
+        for (let i = range.hi; i >= range.lo; i--) deleteFrame(file, i); // high-to-low so earlier deletes don't shift later indices
+        frameSelection.clear();
+      } else {
+        deleteFrame(file, file.activeFrameIndex);
+      }
+      afterFrameChange(file);
+    });
     return;
   }
   if (e.key === '\\' && !e.repeat) { playback.onionSkin = !playback.onionSkin; draw(); return; }
@@ -2855,23 +2968,25 @@ function dispatchLayers(e) {
     return;
   }
   const focusedGroup = focusedGroupId() && file.layerGroups.find((g) => g.id === focusedGroupId());
-  if ((e.key === 'Backspace' || e.key === 'Delete') && !e.repeat) {
-    if (layerSelection) {
-      const list = visibleOrder(layerOrder(file));
-      const lo = Math.min(layerSelection.anchor, layerSelection.to);
-      const hi = Math.max(layerSelection.anchor, layerSelection.to);
-      const entries = list.slice(lo, hi + 1);
-      commitLayerChange(file, () => {
-        for (const entry of entries) {
-          if (entry.isHeader) deleteLayerGroup(file, entry.item.id);
-          else { const idx = file.layers.indexOf(entry.item); if (idx >= 0) deleteLayer(file, idx); }
-        }
-      });
-      layerSelection = null; backslashFocusPos = null;
-      redrawLayersPanel(); draw(); autosave();
-    } else {
-      commitLayerChange(file, () => deleteLayer(file, file.activeLayerIndex));
-    }
+  if (e.key === 'Backspace' || e.key === 'Delete') {
+    if (!e.repeat) holdRemove(() => {
+      if (layerSelection) {
+        const list = visibleOrder(layerOrder(file));
+        const lo = Math.min(layerSelection.anchor, layerSelection.to);
+        const hi = Math.max(layerSelection.anchor, layerSelection.to);
+        const entries = list.slice(lo, hi + 1);
+        commitLayerChange(file, () => {
+          for (const entry of entries) {
+            if (entry.isHeader) deleteLayerGroup(file, entry.item.id);
+            else { const idx = file.layers.indexOf(entry.item); if (idx >= 0) deleteLayer(file, idx); }
+          }
+        });
+        layerSelection = null; backslashFocusPos = null;
+        redrawLayersPanel(); draw(); autosave();
+      } else {
+        commitLayerChange(file, () => deleteLayer(file, file.activeLayerIndex));
+      }
+    });
     return;
   }
   if (e.key === '+' && !e.repeat) { commitLayerChange(file, () => addLayer(file, undefined, focusedGroupId())); return; }
@@ -2977,11 +3092,10 @@ function dispatchProjects(e) {
   const focusId = focusedCollectionId();
   const focusedHeader = focusId && project.collections.find((c) => c.id === focusId);
   if (e.key === '_' && !e.repeat) { // Shift+-: remove selected file/collection
-    if (focusedHeader) deleteCollection(project, focusedHeader.id);
-    else deleteFile(project, project.activeFileIndex);
-    bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw(); autosave();
+    removeProjectSelection();
     return;
   }
+  if (e.key === 'Backspace' || e.key === 'Delete') { if (!e.repeat) holdRemove(removeProjectSelection); return; }
   if (e.key === '=' && !e.repeat) { addCollection(project); redrawProjectPanel(); autosave(); return; }
   if (e.key === ' ' && !e.repeat) {
     if (focusedHeader) { focusedHeader.collapsed = !focusedHeader.collapsed; redrawProjectPanel(); autosave(); }
@@ -3041,6 +3155,19 @@ window.addEventListener('keydown', (e) => {
 
   if (debugAlerts.keydown(e)) return; // DEBUG
 
+  // While the trim anchors are up the arrows move between the pips and Escape lets go of the trim.
+  if (anchorUi && anchorUi.kind === 'trim' && anchorUi.shown) {
+    const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (step) {
+      e.preventDefault();
+      anchors.trim = pips.step(...step);
+      modeText = `anchor: ${anchorName(anchors.trim)}`;
+      updateToolTag();
+      return;
+    }
+    if (e.key === 'Escape') { e.preventDefault(); endTrim(false); return; }
+  }
+
   // --- Global bindings (every focus) ---
   if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) { e.preventDefault(); doCopy(); return; }
   if (e.ctrlKey && (e.key === 'x' || e.key === 'X')) { e.preventDefault(); doCut(); return; }
@@ -3065,7 +3192,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape') {
     setActiveGroup(null); // also exits the read-only group grid, if showing one
-    selectionApi.clear(); frameSelection.clear(); layerSelection = null;
+    selectionApi.clear(); frameSelection.clear(); layerSelection = null; fileSelection = null;
     setFocus('canvas'); // give the keyboard back to the canvas, same as clicking off any panel
     redrawProjectPanel(); draw();
     return;
@@ -3102,6 +3229,8 @@ window.addEventListener('keydown', (e) => {
   if (helpNavHeld && (e.key === 'Enter' || e.key === ' ') && !e.repeat) { e.preventDefault(); helpNavItems[helpNavIndex].click(); return; }
 
   if ((e.key === 'e' || e.key === 'E') && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey) { quickExportFocused(e.key === 'E'); return; }
+  if ((e.key === 't' || e.key === 'T') && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey) { beginTrim(); return; }
+  if ((e.key === 'r' || e.key === 'R') && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey) rTap = { shift: e.shiftKey }; // the Shift+R tap that opens resize is decided on release; in Canvas focus the keydown below also arms rotation
 
   // --- Per-panel dispatch ---
   if (focusedPanel === 'projects') { dispatchProjects(e); return; }
@@ -3111,6 +3240,7 @@ window.addEventListener('keydown', (e) => {
   dispatchCanvas(e);
 });
 
+let rTap = null; // { shift } from R's keydown until its keyup
 window.addEventListener('keyup', (e) => {
   debugAlerts.keyup(e); // DEBUG
   if (e.key.startsWith('Arrow')) {
@@ -3179,7 +3309,13 @@ window.addEventListener('keyup', (e) => {
     return;
   }
   if (e.key === 'z') { held.z = false; return; }
-  if (e.key === 'r' || e.key === 'R') { endRotate(); return; }
+  if (e.key === 'r' || e.key === 'R') {
+    const tap = rTap, rotated = !!rotating && rotating.angle !== 0;
+    rTap = null;
+    endRotate();
+    if (tap && tap.shift && !rotated) openResize(); // Shift+R tapped, not held into a rotation (Shift+R + arrows still rotates 15°; plain R never resizes)
+    return;
+  }
   if (SHAPE_KEYS[e.key.toLowerCase()]) { endShape(); return; }
   if (e.key === 'Enter') setHeldFill(false);
   if (e.key === 'i' || e.key === 'I') { setHeldD(false); return; }
@@ -3202,6 +3338,9 @@ function resetHeldKeys() {
   rectSelecting = false;
   heldArrows.clear();
   debugAlerts.reset(); // DEBUG
+  removeHold.cancel();
+  endTrim(false);
+  rTap = null;
   arrowRepeater.stop();
   stampRepeater.stop();
   if (contentMoveActive) { selectionApi.commitContentMove(); contentMoveActive = false; }
@@ -3292,7 +3431,7 @@ document.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   e.stopPropagation();
   const hex = sampleColorAt(e.clientX, e.clientY);
-  if (hex) palette.pickColor(hex);
+  if (hex) { palette.pickColor(hex); popTool('Pick color'); }
 }, true);
 
 // Clicking anywhere outside the currently focused panel gives the keyboard
