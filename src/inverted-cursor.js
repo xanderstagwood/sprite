@@ -16,6 +16,7 @@ img.alt = '';
 img.hidden = true;
 
 let canvas = null;
+let overArtwork = () => true; // whether a point on the canvas surface is on the drawing itself
 let canvasName = 'draw'; // what the canvas shows: the current tool mode, or 'click' or 'arrow' over the group grid
 let forced = null;
 let hotspot = { x: 0, y: 0 };
@@ -39,7 +40,9 @@ function render() {
   }
   // A name is only editable where its text is: elsewhere in its box it acts like the row around it.
   const name = targetName === 'text-on-text' ? (overText(target, last) ? 'text' : parentName) : targetName;
-  const icon = cursorIcon(forced || (target === canvas ? canvasName : name));
+  // Tool cursors belong to the drawing: the empty space around it is plain app background, unless a drag started on the canvas.
+  const onTool = target === canvas && (captured || overArtwork(last));
+  const icon = cursorIcon(forced || (onTool ? canvasName : name));
   if (img.src !== icon.src) img.src = icon.src;
   hotspot = icon.hotspot;
   // Whole device pixels, or the art resamples.
@@ -48,9 +51,10 @@ function render() {
   img.hidden = false;
 }
 
-/** Starts showing the cursor everywhere; `drawingCanvas` is the surface whose cursor is set by tool. */
-export function installCursor(drawingCanvas) {
+/** Starts showing the cursor everywhere; `drawingCanvas` is the surface whose cursor is set by tool, and `isOverArtwork(event)` says whether a point on it is on the drawing. */
+export function installCursor(drawingCanvas, isOverArtwork) {
   canvas = drawingCanvas;
+  overArtwork = isOverArtwork;
   document.body.append(img);
   document.documentElement.classList.add('custom-cursor');
   document.addEventListener('pointermove', (e) => {

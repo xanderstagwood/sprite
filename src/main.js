@@ -66,7 +66,12 @@ watchPixelSnap(); // before anything measures the layout: font sizes set the gri
 watchTextSnap(); // after each layout change, every text run and icon is settled onto whole device pixels
 await watchCursorScale(); // before the first cursor is shown
 const canvas = document.getElementById('sprite-canvas');
-installCursor(canvas);
+installCursor(canvas, (e) => {
+  if (activeGroupId) return true; // the group grid sets its own cursor, arrow off the artboards
+  const rect = canvas.getBoundingClientRect();
+  const px = screenToPixel(computeViewport(model, rect.width, rect.height), e.clientX - rect.left, e.clientY - rect.top);
+  return px.x >= 0 && px.y >= 0 && px.x < model.width && px.y < model.height;
+});
 const ctx = canvas.getContext('2d');
 const paletteBar = document.getElementById('palette-bar');
 const projectPanel = document.getElementById('project-panel');
