@@ -277,7 +277,8 @@ async function writeFile(backend, projectId, file) {
   let wrote = false;
   for (const chunk of enc.chunks) {
     if (same && last.chunkSigs.get(chunk.name) === chunk.sig) continue;
-    await backend.write([projectId, `${file.name}.sprite.${chunk.name}`], await deflate(chunk.bytes()));
+    const bytes = chunk.bytes();
+    await backend.write([projectId, `${file.name}.sprite.${chunk.name}`], chunk.deflated ? bytes : await deflate(bytes));
     wrote = true;
   }
   if (!same || last.json !== now.json) {

@@ -29,6 +29,24 @@ export function commitCommand(file, command) {
 // (Deep-cloning every buffer here cost layers x frames x canvas area per
 // edit, times the 50-step stack.) Later pixel edits mutate those shared
 // buffers in place, but the linear undo stack unwinds them first.
+// Layer add/delete/reorder only ever add, remove or reorder *references* to
+// pixel buffers: no buffer is edited or copied by them: so the snapshot
+// holds the buffers by reference and clones only the small layer metadata.
+// (Deep-cloning every buffer here cost layers x frames x canvas area per
+// edit, times the 50-step stack.) Later pixel edits mutate those shared
+// buffers in place, but the linear undo stack unwinds them first.
+//
+// This still holds even with frames outside the active hot window
+// deflated in memory (§ frame-cache.js): a frame is only ever compressed
+// while it isn't the active frame, so it's never edited while compressed,
+// and decompressing it losslessly rebuilds the exact content it had when
+// compressed. A snapshot taken here (always after commitLayerChange's
+// ensureAllFramesLoaded, so every buffer is raw at snapshot time) stays
+// content-correct no matter how many compress/decompress cycles a frame
+// goes through before this entry is undone: only pixel edits change a
+// frame's content, and those are always separate, position-based undo
+// commands layered on top, never something a structural snapshot needs to
+// track buffer identity across.
 export function snapshotLayers(file) {
   return {
     layers: structuredClone(file.layers),

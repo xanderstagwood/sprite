@@ -1,6 +1,7 @@
 import { compositeFrame, compositeFrameAt, compositeLayerAt } from './sprite-file.js';
 import { encodeFile } from './sprite-format.js';
 import { ensureLoaded, loadTemporarily } from './persistence.js';
+import { ensureAllFramesLoaded } from './frame-cache.js';
 import { computeArtboardLayout } from './renderer.js';
 import { zipSync } from 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
 import { GIFEncoder, quantize, applyPalette } from 'https://cdn.jsdelivr.net/npm/gifenc@1.0.3/dist/gifenc.esm.js';
@@ -206,6 +207,7 @@ export function exportFile(file, opts) {
 
 async function exportFileImpl(file, { format, scale = 1, mode = 'canvas', fps = 8, trim = false, outlines = false } = {}, onProgress) {
   await ensureLoaded(file);
+  await ensureAllFramesLoaded(file); // every frame gets composited below, cold or not
   if (format === 'gif') return exportFileGif(file, scale, fps, trim, onProgress);
 
   const toBlob = async (pixels, w, h) => {

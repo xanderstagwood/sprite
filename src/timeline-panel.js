@@ -12,12 +12,24 @@ const THUMB_H = BLOCK * 2; // frame tiles are 2 blocks tall
 const painted = new WeakMap(); // frame -> { canvasEl, out, rev }
 const FPS_DRAG_PX = 6; // pixels of vertical drag per frame-per-second
 
-export function renderTimelinePanel(container, file, playback, callbacks, frameSelection) {
+// `frameSelectionRange` is `{lo, hi}` or null (frame-selection.js's
+// getRange()). `getCachedThumbnail(frame)` resolves a compressed frame's
+// last composite (frame-cache.js): a compressed frame's `layerPixels` is
+// unreachable, so painting it must never fall through to compositeFrameAt.
+export function renderTimelinePanel(container, file, playback, callbacks, frameSelectionRange, getCachedThumbnail) {
   container._thumbObserver?.disconnect();
   const scrollLeft = container.querySelector('.frame-strip')?.scrollLeft ?? 0; // a rebuild would otherwise snap the strip back to the start
   container.innerHTML = '';
-  const selLo = frameSelection ? Math.min(frameSelection.anchor, frameSelection.to) : -1;
-  const selHi = frameSelection ? Math.max(frameSelection.anchor, frameSelection.to) : -1;
+  const selLo = frameSelectionRange ? frameSelectionRange.lo : -1;
+  const selHi = frameSelectionRange ? frameSelectionRange.hi : -1;
+  // A compressed frame can't change (only the active frame is ever
+  // edited), so its cached composite is permanently fresh: never worth
+  // recompositing, and compositeFrameAt would throw anyway (its pixels are
+  // gone). Falls back to compositeFrameAt only for a frame that's raw.
+  const compositeOf = (i) => {
+    const frame = file.frames[i];
+    return frame._compressed ? getCachedThumbnail(frame) : compositeFrameAt(file, i);
+  };
 
   // A div, not an <input>: an input's text is not placed on whole device pixels and
   // renders soft, where ordinary text (and the inline rename fields) stays sharp.
@@ -69,7 +81,7 @@ export function renderTimelinePanel(container, file, playback, callbacks, frameS
       if (!entry.isIntersecting) continue;
       observer.unobserve(entry.target);
       const index = Number(entry.target.dataset.frame);
-      const out = compositeFrameAt(file, index);
+      const out = compositeOf(index);
       paintThumbnail(entry.target, file, out, THUMB_H);
       painted.set(file.frames[index], { canvasEl: entry.target, out, rev: out.rev });
     }
@@ -92,7 +104,7 @@ export function renderTimelinePanel(container, file, playback, callbacks, frameS
     const known = painted.get(frame);
     if (known) {
       canvasEl = known.canvasEl;
-      const out = compositeFrameAt(file, i);
+      const out = compositeOf(i);
       if (known.out !== out || known.rev !== out.rev) {
         paintThumbnail(canvasEl, file, out, THUMB_H);
         known.out = out;
@@ -107,7 +119,10 @@ export function renderTimelinePanel(container, file, playback, callbacks, frameS
     }
 
     tile.append(canvasEl);
-    tile.addEventListener('click', () => callbacks.onSelect(i));
+    tile.addEventListener('click', (e) => {
+      if (e.shiftKey) { callbacks.onShiftSelect(i); return; }
+      callbacks.onSelect(i);
+    });
     attachDragReorder(tile, i, {
       getItems: () => Array.from(strip.querySelectorAll('.frame-tile')),
       axis: 'x',

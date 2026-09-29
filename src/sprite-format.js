@@ -24,7 +24,7 @@ let frameIdCounter = 0;
 const frameId = (frame) => frame.id ??= `f${Date.now().toString(36)}${(frameIdCounter++).toString(36)}`;
 // Unlike bufferId (a per-session counter), this names the buffer's chunk on
 // disk, so it is generated once, saved in the meta and restored on load.
-const chunkId = (buf) => buf.cid ??= `b${Date.now().toString(36)}${(frameIdCounter++).toString(36)}`;
+export const chunkId = (buf) => buf.cid ??= `b${Date.now().toString(36)}${(frameIdCounter++).toString(36)}`;
 export const chunkName = (frameId, cid) => `frame-${frameId}-${cid}`;
 
 // In-memory File -> { meta, chunks }. Each `chunks[i]` is one layer buffer:
@@ -49,19 +49,28 @@ export function encodeFile(file) {
   const chunks = [];
   const frames = file.frames.map((frame) => {
     const id = frameId(frame);
-    const buffers = frame.layerPixels.map((buf) => {
-      const cid = chunkId(buf);
-      chunks.push({
-        name: chunkName(id, cid),
-        sig: `${bufferId(buf)}.${buf.v | 0}`,
-        bytes() {
-          const bytes = new Uint8Array(cells * 2);
-          new Uint16Array(bytes.buffer).set(buf);
-          return bytes;
-        },
-      });
-      return cid;
-    });
+    // A frame the in-memory frame cache (frame-cache.js) has compressed
+    // never has its `layerPixels` touched here: its chunks are already
+    // known (frozen at compress time) and already deflated, so the sig and
+    // bytes come from that record instead of the live buffer.
+    const buffers = frame._compressed
+      ? frame._compressed.map((c) => {
+          chunks.push({ name: chunkName(id, c.cid), sig: `${c.id}.${c.v}`, bytes: () => c.bytes, deflated: true });
+          return c.cid;
+        })
+      : frame.layerPixels.map((buf) => {
+          const cid = chunkId(buf);
+          chunks.push({
+            name: chunkName(id, cid),
+            sig: `${bufferId(buf)}.${buf.v | 0}`,
+            bytes() {
+              const bytes = new Uint8Array(cells * 2);
+              new Uint16Array(bytes.buffer).set(buf);
+              return bytes;
+            },
+          });
+          return cid;
+        });
     return { id, buffers };
   });
   return { meta: buildMeta(file, frames), chunks };

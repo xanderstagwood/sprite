@@ -25,6 +25,8 @@ import { renderLayersPanel } from './layers-panel.js';
 import { renderTimelinePanel } from './timeline-panel.js';
 import { connectFolder } from './storage.js';
 import { chooseBackend, loadProject, saveProject, listProjects, deleteProject, deleteStoredFile, ensureLoaded, markUsed, unloadIdle, debounce, autosaveDelay } from './persistence.js';
+import { ensureAllFramesLoaded, ensureFrameLoaded, syncHotWindow, getCachedThumbnail } from './frame-cache.js';
+import * as frameSelection from './frame-selection.js';
 import { createRevealablePanel } from './panel-reveal.js';
 import { createKeybindHelp } from './keybind-help.js';
 import { renderExportPanel } from './export-panel.js';
@@ -732,11 +734,10 @@ function computeOnionFrames(file) {
   // scheme), still focused on the active frame as the real (non-ghost) one.
   // This overrides the plain onion-skin toggle rather than requiring it:
   // a multi-frame selection is itself the signal to show the ghosts.
-  if (frameSelection) {
-    const lo = Math.min(frameSelection.anchor, frameSelection.to);
-    const hi = Math.max(frameSelection.anchor, frameSelection.to);
+  const selRange = frameSelection.getRange();
+  if (selRange) {
     const ghosts = [];
-    for (let i = lo; i <= hi; i++) {
+    for (let i = selRange.lo; i <= selRange.hi; i++) {
       if (i === file.activeFrameIndex) continue;
       ghosts.push({ side: i < file.activeFrameIndex ? 'before' : 'after', distance: Math.abs(i - file.activeFrameIndex), ...ghostSource(file, i, playback.onionLayerOnly) });
     }
@@ -754,7 +755,6 @@ function computeOnionFrames(file) {
   }
   return ghosts;
 }
-let frameSelection = null; // { anchor, to } inclusive frame-index range, while T+Shift+Left/Right selects multiple
 
 
 const palette = createPalette(paletteBar, project.palette, () => autosave(), (hex) => {
@@ -805,9 +805,16 @@ const history = {
 // mutation, snapshot after, hand both to history.commit.
 // Undo or redo one step. When it changed the canvas size (a resize), the view,
 // selection and panel thumbnails follow it.
-function stepHistory(step) {
+async function stepHistory(step) {
+  const file = getActiveFile(project);
   const { width, height } = model;
-  if (!step(getActiveFile(project), model)) return;
+  // A popped command may be a layer/resize snapshot, which reassigns every
+  // frame's layerPixels outright: any frame the cache has compressed must
+  // be raw first, or that assignment throws (§ frame-cache.js's stub-style
+  // accessor). Pixel-diff commands only touch the always-raw active frame,
+  // so this is a no-op for those.
+  await ensureAllFramesLoaded(file);
+  if (!step(file, model)) return;
   bindActiveFile();
   if (model.width !== width || model.height !== height) { resetView(); selectionApi.clear(); redrawProjectPanel(); }
   draw(); autosave();
@@ -815,21 +822,28 @@ function stepHistory(step) {
 
 // A resize is one undo step. Undoing it hands back the old buffers, so older
 // steps in the stack (which address pixels in the old layout) stay valid.
-function resizeWithUndo(file, w, h, anchor) {
+// Every frame must be raw first: resizeCanvas rebuilds every frame's
+// buffers, not just the active one's (§ frame-cache.js's hot window).
+async function resizeWithUndo(file, w, h, anchor) {
+  await ensureAllFramesLoaded(file);
   const before = snapshotResize(file);
   resizeCanvas(file, w, h, anchor);
   commitCommand(file, { type: 'resize', before, after: snapshotResize(file) });
 }
 
 // Fits `file` to its placed pixels as one undo step; false if there was nothing to trim.
-function trimWithUndo(file) {
+async function trimWithUndo(file) {
+  await ensureAllFramesLoaded(file); // trimCanvas reads every frame's pixels to find the bounding box
   const before = snapshotResize(file);
   if (!trimCanvas(file, MIN_CANVAS)) return false;
   commitCommand(file, { type: 'resize', before, after: snapshotResize(file) });
   return true;
 }
 
-function commitLayerChange(file, mutate) {
+// Layer structural edits touch every frame's layerPixels (a new layer's
+// empty buffer, a deleted layer's slot), not just the active frame's.
+async function commitLayerChange(file, mutate) {
+  await ensureAllFramesLoaded(file);
   const before = snapshotLayers(file);
   mutate();
   const after = snapshotLayers(file);
@@ -1118,7 +1132,7 @@ function redrawProjectPanel() {
     },
     onResizeFile: async (file, w, h, anchor) => {
       await ensureLoaded(file);
-      resizeWithUndo(file, w, h, anchor);
+      await resizeWithUndo(file, w, h, anchor);
       if (file === getActiveFile(project)) { bindActiveFile(); resetView(); selectionApi.clear(); } // a selection mask is sized for the old canvas
       redrawProjectPanel();
       draw();
@@ -1126,7 +1140,7 @@ function redrawProjectPanel() {
     },
     onTrimFile: async (file) => {
       await ensureLoaded(file);
-      if (!trimWithUndo(file)) { flashTip('Nothing to trim'); return; }
+      if (!(await trimWithUndo(file))) { flashTip('Nothing to trim'); return; }
       if (file === getActiveFile(project)) { bindActiveFile(); resetView(); selectionApi.clear(); }
       redrawProjectPanel(); draw(); autosave();
     },
@@ -1230,7 +1244,7 @@ function openMultiResizePopup(anchor, files) {
   openSizePopup(anchor, async (w, h, _preset, where) => {
     await Promise.all(files.map(ensureLoaded));
     for (const file of files) {
-      resizeWithUndo(file, w, h, where);
+      await resizeWithUndo(file, w, h, where);
     }
     fileSelection = null;
     bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw(); autosave();
@@ -1239,7 +1253,7 @@ function openMultiResizePopup(anchor, files) {
     anchored: true,
     onTrim: async () => {
       await Promise.all(files.map(ensureLoaded));
-      const trimmed = files.filter(trimWithUndo).length;
+      const trimmed = (await Promise.all(files.map(trimWithUndo))).filter(Boolean).length;
       fileSelection = null;
       if (!trimmed) flashTip('Nothing to trim');
       bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw(); autosave();
@@ -1746,6 +1760,28 @@ function focusedGroupId() {
   return entry && entry.isHeader ? entry.item.id : null;
 }
 
+// After anything that changes which frames exist or which is active: keeps
+// the in-memory frame cache's hot window in sync (§ frame-cache.js) before
+// the next paint, so onion-skin/render never reads a frame this just made
+// "cold".
+async function afterFrameChange(file, { autosave: doAutosave = true } = {}) {
+  await syncHotWindow(file, frameSelection.getRange());
+  bindActiveFile();
+  draw();
+  if (doAutosave) autosave();
+}
+
+async function selectFrame(file, i) {
+  file.activeFrameIndex = i;
+  await afterFrameChange(file, { autosave: false }); // selection persists across frame switches (§9.3)
+}
+
+async function shiftSelectFrame(file, i) {
+  frameSelection.extendTo(i);
+  await syncHotWindow(file, frameSelection.getRange());
+  draw();
+}
+
 function redrawTimelinePanel() {
   const file = getActiveFile(project);
   if (file._stub) return; // still loading
@@ -1755,31 +1791,57 @@ function redrawTimelinePanel() {
     onSetFps: (fps) => { playback.fps = fps; if (playback.playing) startPlayback(); },
     onToggleOnion: () => { playback.onionSkin = !playback.onionSkin; draw(); },
     onToggleOnionSource: () => { playback.onionLayerOnly = !playback.onionLayerOnly; draw(); },
-    onSelect: (i) => { file.activeFrameIndex = i; bindActiveFile(); draw(); }, // selection persists across frame switches (§9.3)
-    onAddFrame: () => { addFrame(file); bindActiveFile(); draw(); autosave(); },
-    onInsertFrame: (i) => { addFrame(file, i); bindActiveFile(); draw(); autosave(); },
-    onDelete: (i) => { deleteFrame(file, i); bindActiveFile(); draw(); autosave(); },
-    onReorder: (from, to) => { reorderFrame(file, from, to); draw(); autosave(); },
-  }, frameSelection);
+    onSelect: (i) => selectFrame(file, i),
+    onShiftSelect: (i) => shiftSelectFrame(file, i),
+    onAddFrame: () => { addFrame(file); afterFrameChange(file); },
+    onInsertFrame: (i) => { addFrame(file, i); afterFrameChange(file); },
+    onDelete: (i) => { deleteFrame(file, i); afterFrameChange(file); },
+    onReorder: (from, to) => { reorderFrame(file, from, to); afterFrameChange(file); },
+  }, frameSelection.getRange(), getCachedThumbnail);
 }
 
-function stepFrame(dir) {
+async function stepFrame(dir) {
   const file = getActiveFile(project);
   const next = (file.activeFrameIndex + dir + file.frames.length) % file.frames.length;
   file.activeFrameIndex = next;
-  bindActiveFile(); // selection persists across frame switches (§9.3)
+  await afterFrameChange(file, { autosave: false }); // selection persists across frame switches (§9.3)
+}
+
+// Playback loops within the selected frame range if one exists, the whole
+// reel otherwise: this is why togglePlayback pre-loads exactly that range
+// (and no more) before starting, so playbackStep itself never has to await
+// a decompress mid-tick.
+function playbackStep() {
+  const file = getActiveFile(project);
+  const range = frameSelection.getRange();
+  const lo = range ? range.lo : 0, hi = range ? range.hi : file.frames.length - 1;
+  const span = hi - lo + 1;
+  file.activeFrameIndex = lo + (((file.activeFrameIndex - lo + 1) % span + span) % span);
+  bindActiveFile();
   draw();
 }
 
 function startPlayback() {
   clearInterval(playback.timer);
-  playback.timer = setInterval(() => stepFrame(1), 1000 / playback.fps);
+  playback.timer = setInterval(playbackStep, 1000 / playback.fps);
 }
 
-function togglePlayback() {
+async function togglePlayback() {
+  const file = getActiveFile(project);
   playback.playing = !playback.playing;
-  if (playback.playing) startPlayback();
-  else clearInterval(playback.timer);
+  if (playback.playing) {
+    const range = frameSelection.getRange();
+    const lo = range ? range.lo : 0, hi = range ? range.hi : file.frames.length - 1;
+    // The "rendering pass before playback" a selection scopes down: without
+    // one this loads the whole reel, same as always having stepped through it.
+    await Promise.all(Array.from({ length: hi - lo + 1 }, (_, k) => ensureFrameLoaded(file, lo + k)));
+    if (!playback.playing) return; // stopped again while loading
+    startPlayback();
+  } else {
+    clearInterval(playback.timer);
+    await syncHotWindow(file, frameSelection.getRange()); // shrink back to the normal hot window
+    draw();
+  }
 }
 
 const SHAPE_CURSORS = { rect: 'rectangle', triangle: 'triangle', circle: 'circle' }; // the line tool has no cursor of its own
@@ -2453,24 +2515,24 @@ function dispatchTimeline(e) {
     if (e.shiftKey) {
       // Anchor is the frame you started selecting from: it stays the
       // active/editing frame throughout; only the far edge moves.
-      if (!frameSelection) frameSelection = { anchor: file.activeFrameIndex, to: file.activeFrameIndex };
-      frameSelection.to = Math.max(0, Math.min(file.frames.length - 1, frameSelection.to + dir));
-      draw();
+      if (!frameSelection.getRange()) frameSelection.setAnchor(file.activeFrameIndex);
+      frameSelection.extendTo(Math.max(0, Math.min(file.frames.length - 1, frameSelection.getTo() + dir)));
+      syncHotWindow(file, frameSelection.getRange()).then(() => draw());
     } else if (e.altKey) {
-      if (frameSelection) {
-        const lo = Math.min(frameSelection.anchor, frameSelection.to);
-        const hi = Math.max(frameSelection.anchor, frameSelection.to);
-        const target = dir > 0 ? hi + 1 : lo - 1;
+      const range = frameSelection.getRange();
+      if (range) {
+        const target = dir > 0 ? range.hi + 1 : range.lo - 1;
         if (target >= 0 && target < file.frames.length) {
-          reorderFrame(file, target, dir > 0 ? lo : hi);
-          frameSelection.anchor += dir; frameSelection.to += dir;
-          bindActiveFile(); draw(); autosave();
+          reorderFrame(file, target, dir > 0 ? range.lo : range.hi);
+          frameSelection.shift(dir);
+          afterFrameChange(file);
         }
       } else {
-        reorderFrame(file, file.activeFrameIndex, file.activeFrameIndex + dir); bindActiveFile(); draw(); autosave();
+        reorderFrame(file, file.activeFrameIndex, file.activeFrameIndex + dir);
+        afterFrameChange(file);
       }
     } else {
-      frameSelection = null;
+      frameSelection.clear();
       stepFrame(dir);
     }
     return;
@@ -2488,18 +2550,17 @@ function dispatchTimeline(e) {
     }
     return;
   }
-  if (e.key === '+' && !e.repeat) { addFrame(file); bindActiveFile(); draw(); autosave(); return; }
-  if (e.key === '=' && !e.repeat) { duplicateFrame(file, file.activeFrameIndex); bindActiveFile(); draw(); autosave(); return; }
+  if (e.key === '+' && !e.repeat) { addFrame(file); afterFrameChange(file); return; }
+  if (e.key === '=' && !e.repeat) { duplicateFrame(file, file.activeFrameIndex); afterFrameChange(file); return; }
   if ((e.key === 'Backspace' || e.key === 'Delete') && !e.repeat) {
-    if (frameSelection) {
-      const lo = Math.min(frameSelection.anchor, frameSelection.to);
-      const hi = Math.max(frameSelection.anchor, frameSelection.to);
-      for (let i = hi; i >= lo; i--) deleteFrame(file, i); // high-to-low so earlier deletes don't shift later indices
-      frameSelection = null;
+    const range = frameSelection.getRange();
+    if (range) {
+      for (let i = range.hi; i >= range.lo; i--) deleteFrame(file, i); // high-to-low so earlier deletes don't shift later indices
+      frameSelection.clear();
     } else {
       deleteFrame(file, file.activeFrameIndex);
     }
-    bindActiveFile(); draw(); autosave();
+    afterFrameChange(file);
     return;
   }
   if (e.key === '\\' && !e.repeat) { playback.onionSkin = !playback.onionSkin; draw(); return; }
@@ -2765,7 +2826,7 @@ window.addEventListener('keydown', (e) => {
   if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); selectionApi.set(fullMask(model)); draw(); return; }
   if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
     e.preventDefault();
-    selectionApi.clear(); frameSelection = null; layerSelection = null;
+    selectionApi.clear(); frameSelection.clear(); layerSelection = null;
     fileSelection = null; multiLayerSelection = null;
     redrawProjectPanel(); draw();
     return;
@@ -2782,7 +2843,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape') {
     setActiveGroup(null); // also exits the read-only group grid, if showing one
-    selectionApi.clear(); frameSelection = null; layerSelection = null;
+    selectionApi.clear(); frameSelection.clear(); layerSelection = null;
     setFocus('canvas'); // give the keyboard back to the canvas, same as clicking off any panel
     redrawProjectPanel(); draw();
     return;
