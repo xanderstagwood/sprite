@@ -2,6 +2,15 @@ import { applyDiff } from './canvas-model.js';
 
 const CAP = 50; // §10: 50-step undo stack, persisted as part of the SpriteFile itself.
 
+// One counter for every command, on a canvas or on the project (project-undo.js), so
+// the newest action can be found whichever stack holds it: a command is numbered when
+// it is committed (`seq`) and again when it is undone (`undone`, which orders redo).
+let counter = 0;
+export const nextSeq = () => ++counter;
+let onCommit = null;
+/** Called after every canvas command is committed: the project's redo history no longer applies. */
+export const setCommitListener = (fn) => { onCommit = fn; };
+
 // Operates directly on file.undoStack/file.redoStack (§5) rather than owning
 // separate closure state, so the arrays are exactly what Phase 8 persists to
 // the .sprite file with no extra translation step.
@@ -17,9 +26,11 @@ export function commitCommand(file, command) {
   } else if (!command.before.length) {
     return;
   }
+  command.seq = nextSeq();
   file.undoStack.push(command);
   if (file.undoStack.length > CAP) file.undoStack.shift();
   file.redoStack = []; // new command invalidates redo history
+  onCommit?.();
   file.updatedAt = Date.now(); // § project.js's mostRecentFileIn
 }
 
@@ -50,18 +61,22 @@ export function commitCommand(file, command) {
 export function snapshotLayers(file) {
   return {
     layers: structuredClone(file.layers),
+    layerGroups: structuredClone(file.layerGroups),
     frames: file.frames.map((frame) => ({ frame, layerPixels: frame.layerPixels.slice() })),
     activeLayerIndex: file.activeLayerIndex,
+    activeFrameIndex: file.activeFrameIndex,
   };
 }
 
 function applyLayerSnapshot(file, snapshot) {
   file.layers = structuredClone(snapshot.layers);
+  file.layerGroups = structuredClone(snapshot.layerGroups);
   file.frames = snapshot.frames.map(({ frame, layerPixels }) => {
     frame.layerPixels = layerPixels.slice();
     return frame;
   });
   file.activeLayerIndex = snapshot.activeLayerIndex;
+  file.activeFrameIndex = snapshot.activeFrameIndex;
 }
 
 // A resize builds new buffers and leaves the old ones untouched, so like the
@@ -88,6 +103,7 @@ export function undo(file, model) {
   const command = file.undoStack.pop();
   if (!command) return false;
   apply(file, model, command, command.before);
+  command.undone = nextSeq();
   file.redoStack.push(command);
   return true;
 }

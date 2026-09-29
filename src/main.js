@@ -8,7 +8,8 @@ import { viewState, resetView, groupViewState, resetGroupView } from './view-sta
 import { createPalette } from './palette.js';
 import { maskFromRect, maskFromWand, maskFromColor, fullMask, toRenderSelection } from './selection.js';
 import { extract, stamp, flip, rotate, shiftMask, moveContent, maskBounds } from './selection-ops.js';
-import { commitCommand, undo as undoCmd, redo as redoCmd, snapshotLayers, snapshotResize } from './undo.js';
+import { commitCommand, undo as undoCmd, redo as redoCmd, snapshotLayers, snapshotResize, setCommitListener } from './undo.js';
+import { recordProject, snapshotStructure, removalCommand, paletteCommand, newestUndo, newestRedo, undoProject, redoProject } from './project-undo.js';
 import {
   createProject, DEFAULT_CANVAS_SIZE, MIN_CANVAS, activeFile as getActiveFile, addFile, deleteFile,
   addCollection, deleteCollection, NEW_FILE_SIZES, projectOrder, moveProjectItem,
@@ -905,7 +906,7 @@ async function doReload() {
   if (!fresh || backend.kind !== 'remote') return;
   fresh.activeFileIndex = Math.max(0, fresh.files.findIndex((f) => f.name === activeName));
   project = fresh;
-  palette.setState(project.palette);
+  usePalette();
   bindActiveFile();
   redrawProjectPanel(); redrawLayersPanel(); redrawTimelinePanel();
   draw();
@@ -1014,12 +1015,42 @@ function computeOnionFrames(file) {
 }
 
 
-const palette = createPalette(paletteBar, project.palette, () => autosave(), (hex) => {
+const palette = createPalette(paletteBar, project.palette, () => { recordPalette(); autosave(); }, (hex) => {
   selectionApi.set(maskFromColor(model, hex));
   popTool('Select color');
   draw();
 }, () => project.name);
 const colors = { primary: () => palette.getPrimary() };
+
+// Chip changes (a colour edited, a chip added, removed or moved, a palette switched) are undoable as
+// one step each: what the palette looked like after the last change is kept, and each change is
+// recorded against it. Choosing which chip is primary is not an edit. A slider dragged for a
+// moment is one step, not one per pixel of the drag.
+const snapPalette = () => ({ name: project.palette.name, chips: project.palette.chips.slice(), primary: project.palette.primary });
+let paletteShown = snapPalette();
+const PALETTE_MERGE_MS = 800;
+function recordPalette() {
+  const now = snapPalette();
+  const same = now.name === paletteShown.name && now.chips.length === paletteShown.chips.length && now.chips.every((c, i) => c === paletteShown.chips[i]);
+  if (!same) {
+    const top = project.undoStack?.at(-1);
+    if (top && top.type === 'palette' && top.after.chips.length === now.chips.length && Date.now() - top.time < PALETTE_MERGE_MS) {
+      top.after = now;
+      top.time = Date.now();
+    } else {
+      const cmd = paletteCommand(paletteShown, now);
+      cmd.time = Date.now();
+      recordProject(project, cmd);
+    }
+  }
+  paletteShown = now;
+}
+// A different project's palette object is now the live one.
+function usePalette() {
+  palette.setState(project.palette);
+  paletteShown = snapPalette();
+}
+setCommitListener(() => { project.redoStack = []; }); // a new canvas edit ends the project's redo history too
 
 let contentDragSnapshot = null;
 const selectionApi = {
@@ -1072,7 +1103,10 @@ const history = {
 // selection and panel thumbnails follow it.
 async function stepHistory(step) {
   const file = getActiveFile(project);
+  // One history for the canvas and the project: whichever holds the newest action goes first.
+  if ((step === undoCmd ? newestUndo(file, project) : newestRedo(file, project)) === 'project') { stepProject(step === undoCmd); return; }
   const { width, height } = model;
+  const frameCount = file.frames.length;
   // A popped command may be a layer/resize snapshot, which reassigns every
   // frame's layerPixels outright: any frame the cache has compressed must
   // be raw first, or that assignment throws (§ frame-cache.js's stub-style
@@ -1092,9 +1126,24 @@ async function stepHistory(step) {
   }
   if (cmd.type === 'layers' || cmd.type === 'resize') structureChanged();
   else strokeSync?.sendStroke({ type: cmd.type, after: step === undoCmd ? cmd.before : cmd.after }, { fileId: file.name, frame: file.activeFrameIndex, layer: file.activeLayerIndex, colors: file.colors });
+  if (file.frames.length !== frameCount) frameSelection.clear(); // its indices no longer mean the same frames
   bindActiveFile();
   if (model.width !== width || model.height !== height) { resetView(); selectionApi.clear(); redrawProjectPanel(); }
   draw(); autosave(file);
+}
+
+// Undo or redo the project's newest command: a removal of canvases or collections, or a palette change.
+function stepProject(undoing) {
+  const cmd = (undoing ? undoProject : redoProject)(project);
+  if (!cmd) return;
+  if (cmd.type === 'palette') {
+    usePalette();
+  } else {
+    fileSelection = null;
+    if (activeGroupId && !project.collections.some((c) => c.id === activeGroupId)) setActiveGroup(null);
+    bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel();
+  }
+  draw(); autosave();
 }
 
 // A resize is one undo step. Undoing it hands back the old buffers, so older
@@ -1456,7 +1505,7 @@ function redrawProjectPanel() {
     },
     onReorder: (from, to) => { moveProjectItem(project, from, to); redrawProjectPanel(); draw(); autosave(); },
     onRemoveFile: (i) => {
-      deleteFile(project, i);
+      removeWithUndo(() => deleteFile(project, i));
       bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw();
       autosave();
     },
@@ -1521,12 +1570,19 @@ function altSelectFile(targetIndex) {
   redrawProjectPanel();
 }
 
+// Runs a removal of canvases or collections and records it, so Ctrl+Z brings them back.
+function removeWithUndo(remove) {
+  const before = snapshotStructure(project);
+  remove();
+  recordProject(project, removalCommand(before, snapshotStructure(project)));
+}
+
 // Descending index order: deleting high indices first means earlier ones
 // never shift out from under the next delete. deleteFile's own "at least
 // one file" guard already stops short of emptying the project entirely.
 function removeSelectedFiles(files) {
   const indices = files.map((f) => project.files.indexOf(f)).filter((i) => i >= 0).sort((a, b) => b - a);
-  for (const i of indices) deleteFile(project, i);
+  removeWithUndo(() => { for (const i of indices) deleteFile(project, i); });
   fileSelection = null;
   bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw();
   autosave();
@@ -1657,10 +1713,10 @@ function removeProjectSelection() {
     return;
   }
   if (collectionId && project.collections.some((c) => c.id === collectionId)) {
-    deleteCollection(project, collectionId);
+    removeWithUndo(() => deleteCollection(project, collectionId));
     if (activeGroupId === collectionId) setActiveGroup(null);
   } else {
-    deleteFile(project, project.activeFileIndex);
+    removeWithUndo(() => deleteFile(project, project.activeFileIndex));
   }
   bindActiveFile(); resetView(); selectionApi.clear(); redrawProjectPanel(); draw(); autosave();
 }
@@ -1743,7 +1799,7 @@ async function switchToProject(newProject, { save = true } = {}) {
   project = newProject;
   uiPrefs.lastProjectId = project.id;
   saveUiPrefs(uiPrefs);
-  palette.setState(project.palette);
+  usePalette();
   setActiveGroup(null); // a different project has no relation to the previous one's group view
   bindActiveFile();
   resetView();
@@ -2009,7 +2065,7 @@ function redrawLayersPanel(force = false) {
     // refresh happens once when the drag ends, not on every tick.
     onOpacityChange: (i, value) => { file.layers[i].opacity = value; renderCanvas(); },
     onOpacityCommit: () => { redrawLayersPanel(); autosave(); },
-    onAddGroup: () => { addLayerGroup(file); redrawLayersPanel(); autosave(); },
+    onAddGroup: () => commitLayerChange(file, () => addLayerGroup(file)),
     onImportReference: () => importReference(),
     onSelectReference: (id) => {
       activeReferenceId = id;
@@ -2023,7 +2079,7 @@ function redrawLayersPanel(force = false) {
     // re-render at full visibility; a hidden group's members stop
     // rendering), so a full draw(): which also redraws this panel: not
     // just a plain redrawLayersPanel().
-    onDeleteGroup: (id) => { deleteLayerGroup(file, id); draw(); autosave(); },
+    onDeleteGroup: (id) => commitLayerChange(file, () => deleteLayerGroup(file, id)),
     onToggleGroupVisible: (id) => {
       const g = file.layerGroups.find((group) => group.id === id);
       g.visible = !g.visible;
@@ -2164,6 +2220,16 @@ async function afterFrameChange(file, { autosave: doAutosave = true } = {}) {
   if (doAutosave) autosave();
 }
 
+// Adding, duplicating, removing or moving frames as one undo step: the frame list and the layer
+// stack are snapshotted around it (the pixel buffers by reference, so nothing is copied).
+async function commitFrameChange(file, mutate) {
+  await ensureAllFramesLoaded(file);
+  const before = snapshotLayers(file);
+  mutate();
+  history.commit({ type: 'layers', before, after: snapshotLayers(file) }); // draws and autosaves
+  await afterFrameChange(file, { autosave: false });
+}
+
 async function selectFrame(file, i) {
   file.activeFrameIndex = i;
   await afterFrameChange(file, { autosave: false }); // selection persists across frame switches (§9.3)
@@ -2186,10 +2252,10 @@ function redrawTimelinePanel() {
     onToggleOnionSource: () => { playback.onionLayerOnly = !playback.onionLayerOnly; draw(); },
     onSelect: (i) => selectFrame(file, i),
     onShiftSelect: (i) => shiftSelectFrame(file, i),
-    onAddFrame: () => { addFrame(file); afterFrameChange(file); },
-    onInsertFrame: (i) => { addFrame(file, i); afterFrameChange(file); },
-    onDelete: (i) => { deleteFrame(file, i); afterFrameChange(file); },
-    onReorder: (from, to) => { reorderFrame(file, from, to); afterFrameChange(file); },
+    onAddFrame: () => commitFrameChange(file, () => addFrame(file)),
+    onInsertFrame: (i) => commitFrameChange(file, () => addFrame(file, i)),
+    onDelete: (i) => commitFrameChange(file, () => deleteFrame(file, i)),
+    onReorder: (from, to) => commitFrameChange(file, () => reorderFrame(file, from, to)),
   }, frameSelection.getRange(), getCachedThumbnail);
 }
 
@@ -2920,13 +2986,13 @@ function dispatchTimeline(e) {
       if (range) {
         const target = dir > 0 ? range.hi + 1 : range.lo - 1;
         if (target >= 0 && target < file.frames.length) {
-          reorderFrame(file, target, dir > 0 ? range.lo : range.hi);
-          frameSelection.shift(dir);
-          afterFrameChange(file);
+          commitFrameChange(file, () => {
+            reorderFrame(file, target, dir > 0 ? range.lo : range.hi);
+            frameSelection.shift(dir);
+          });
         }
       } else {
-        reorderFrame(file, file.activeFrameIndex, file.activeFrameIndex + dir);
-        afterFrameChange(file);
+        commitFrameChange(file, () => reorderFrame(file, file.activeFrameIndex, file.activeFrameIndex + dir));
       }
     } else {
       frameSelection.clear();
@@ -2947,10 +3013,10 @@ function dispatchTimeline(e) {
     }
     return;
   }
-  if (e.key === '+' && !e.repeat) { addFrame(file); afterFrameChange(file); return; }
-  if (e.key === '=' && !e.repeat) { duplicateFrame(file, file.activeFrameIndex); afterFrameChange(file); return; }
+  if (e.key === '+' && !e.repeat) { commitFrameChange(file, () => addFrame(file)); return; }
+  if (e.key === '=' && !e.repeat) { commitFrameChange(file, () => duplicateFrame(file, file.activeFrameIndex)); return; }
   if (e.key === 'Backspace' || e.key === 'Delete') {
-    if (!e.repeat) holdRemove(() => {
+    if (!e.repeat) holdRemove(() => commitFrameChange(file, () => {
       const range = frameSelection.getRange();
       if (range) {
         for (let i = range.hi; i >= range.lo; i--) deleteFrame(file, i); // high-to-low so earlier deletes don't shift later indices
@@ -2958,8 +3024,7 @@ function dispatchTimeline(e) {
       } else {
         deleteFrame(file, file.activeFrameIndex);
       }
-      afterFrameChange(file);
-    });
+    }));
     return;
   }
   if (e.key === '\\' && !e.repeat) { playback.onionSkin = !playback.onionSkin; draw(); return; }
