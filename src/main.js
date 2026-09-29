@@ -165,7 +165,7 @@ exportErrorLabel.hidden = true;
 exportErrorLabel.addEventListener('click', () => { if (exportError) openExportErrorModal(exportError); });
 toolTag.append(zoomIcon, zoomLabel, toolLabel, exportBar, exportErrorLabel, primarySwatch);
 
-const MODE_LABELS = { place: 'Place', paint: 'Paint', erase: 'Erase' };
+const MODE_LABELS = { place: 'Place', paint: 'Paint', erase: 'Erase', selectRect: 'Select', rectangle: 'Rectangle', triangle: 'Triangle', circle: 'Circle', fill: 'Fill' };
 
 // Restarts the attention pulse on `el`: removing the class and forcing a
 // reflow lets the same animation run again.
@@ -2060,6 +2060,11 @@ async function togglePlayback() {
   }
 }
 
+// --- Held-modifier tracking (Alt/Ctrl/Shift, distinguishing L/R Shift) ---
+const held = {
+  alt: false, ctrl: false, shift: false, leftShift: false, rightShift: false, space: false, z: false,
+};
+
 const SHAPE_CURSORS = { rect: 'rectangle', triangle: 'triangle', circle: 'circle' }; // the line tool has no cursor of its own
 let shapeState = null; // { key, anchor, snapshot } while a shape key is held (Q/W/A/S, below)
 let heldFill = false; // Ctrl+Enter is down: fill has no held state of its own, this is only for its cursor
@@ -2070,7 +2075,7 @@ let heldFill = false; // Ctrl+Enter is down: fill has no held state of its own, 
 // existing keyboard-arrow versions of the same gestures.
 const mouseDragTools = {
   shapeActive: () => !!shapeState,
-  heldTool: () => (shapeState && SHAPE_CURSORS[shapeState.key]) || (heldFill ? 'fill' : null),
+  heldTool: () => (shapeState && SHAPE_CURSORS[shapeState.key]) || (heldFill ? 'fill' : null) || (held.z ? 'erase' : null),
   shapeStart: (x, y) => { if (shapeState) shapeState.anchor = { x, y }; },
   shapeDrag: (x, y) => { hoverPixel = { x, y }; updateShapePreview({ x, y }); },
   shapeEnd: () => endShape(),
@@ -2411,11 +2416,6 @@ function createHoldRepeater(step) {
 function maxBrushSize() {
   return Math.max(1, Math.floor(Math.min(model.width, model.height) * 0.25)); // §8: capped at 1/4 canvas dimension
 }
-
-// --- Held-modifier tracking (Alt/Ctrl/Shift, distinguishing L/R Shift) ---
-const held = {
-  alt: false, ctrl: false, shift: false, leftShift: false, rightShift: false, space: false, z: false,
-};
 
 // --- Keyboard cursor + arrow dispatch (Canvas focus only) ---
 // One live mode at a time while arrows are held, decided fresh each repeat
@@ -3210,7 +3210,21 @@ function resetHeldKeys() {
   if (shapeState) endShape();
   setHeldFill(false);
   setHeldD(false);
+  syncTool();
 }
+// A tool key changes the tool without the pointer moving, so the cursor, the brush preview and the
+// tool tag are refreshed after every key press and release (this runs after the handlers above and
+// below have updated `held`), and the canvas redrawn when the tool actually changed.
+let shownTool = '';
+function syncTool() {
+  inputController.syncModifiers({ altKey: held.alt, shiftKey: held.shift, ctrlKey: held.ctrl });
+  const tool = `${inputController.getMode()}|${heldD}|${shapeState && shapeState.key}`;
+  if (tool === shownTool) return;
+  shownTool = tool;
+  renderCanvas();
+}
+window.addEventListener('keydown', syncTool);
+window.addEventListener('keyup', syncTool);
 window.addEventListener('blur', resetHeldKeys);
 document.addEventListener('visibilitychange', () => { if (document.hidden) resetHeldKeys(); });
 

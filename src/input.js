@@ -80,10 +80,16 @@ export function createInputController(canvas, model, colors, onPlace, history, g
   }
 
   // Bresenham-fills between samples so a fast drag doesn't leave gaps.
-  function onPointerMove(e) {
-    const hoverNow = pointerPixel(e);
+  // The tool follows Alt and Shift, so anything carrying their state (a pointer
+  // move, or a key press with the pointer still) re-reads them and redraws the cursor.
+  function syncModifiers(e) {
     if (drawingButton === null) { hoverAntialiased = e.altKey; hoverSelecting = !!(dragTools.selectActive && dragTools.selectActive(e)); }
     updateCursor();
+  }
+
+  function onPointerMove(e) {
+    const hoverNow = pointerPixel(e);
+    syncModifiers(e);
     if (drawingButton === null) return;
     const { x, y } = hoverNow;
     if (lastPixel && (lastPixel.x !== x || lastPixel.y !== y)) {
@@ -125,5 +131,5 @@ export function createInputController(canvas, model, colors, onPlace, history, g
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   updateCursor();
-  return { getMode: currentMode, updateCursor };
+  return { getMode: currentMode, updateCursor, syncModifiers };
 }
