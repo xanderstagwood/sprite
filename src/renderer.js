@@ -22,6 +22,7 @@ const CHECKER_CELL = 4; // canvas pixels per checker square: an 8x8 sprite reads
 const GROUP_CHECKER_CELL = 24; // screen px per square: big and chunky, legible at any zoom (not tied to sprite size)
 const GRID_ALPHA = 0.35;
 const GRID_MIN_SPACING_PX = 6; // never draw grid lines closer together than this on screen
+const GRID_MIN_CELL_PX = 5; // a canvas pixel smaller than this many device pixels (the zoom readout's 100% = 1) has no room for a grid: it is hidden
 const RULER_THICKNESS = 16;
 const RULER_BG = '#1A1A1D';
 const RULER_TICK = '#444441';
@@ -72,12 +73,13 @@ export function render(ctx, model, viewW, viewH, { showGrid, showRuler, symmetry
 
   if (symmetry !== 'off') drawSymmetryAxes(ctx, symmetry, ox, oy, w, h);
 
-  if (showGrid) {
-    // A reference, not a measurement: at 1 screen-pixel-per-canvas-pixel
-    // zoom, one line per pixel is already unreadable clutter. Step goes
-    // 1px -> 4px -> 16px -> ... (gridStep) until on-screen line spacing
-    // clears a minimum, so it's 1x1 when pixels are big enough to see
-    // individually, and coarser as the canvas shrinks.
+  if (showGrid && scale * (window.devicePixelRatio || 1) >= GRID_MIN_CELL_PX) {
+    // A reference, not a measurement: zoomed out until a canvas pixel is
+    // under GRID_MIN_CELL_PX device pixels (500% on the zoom readout), lines would be most of the picture,
+    // so there is no grid. Above that the step goes 1px -> 4px -> 16px -> ...
+    // (gridStep) until on-screen line spacing clears a minimum, so it's 1x1
+    // when pixels are big enough to see individually, and coarser as the
+    // canvas shrinks.
     const step = gridStep(scale);
 
     // 'difference' composite inverts whatever is under each line segment:
