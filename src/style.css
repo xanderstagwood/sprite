@@ -1099,7 +1099,7 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
 .file-stack { margin-top: auto; }
 .file-row { box-shadow: inset 0 calc(var(--border-width) * -1) 0 var(--black-a10); overflow: hidden; }
 .layer-row--nested .layer-label { padding-left: calc(var(--pad) * 2); }
-.file-row--nested .file-row-name { padding-left: calc(var(--pad) * 2 + var(--block) / 2); }
+.file-row--nested .file-row-name { padding-left: calc(var(--pad) * 2 + var(--block) / 4); }
 
 .file-row-name {
   flex: 1 1 auto;
