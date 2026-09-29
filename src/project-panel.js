@@ -160,10 +160,7 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
       callbacks.onSelectFile(fileIndex);
     });
 
-    const handle = document.createElement('div');
-    handle.className = 'drag-handle';
-    setIcon(handle, '⋮');
-    makeReorderable(handle, row, pos, {
+    makeReorderable(row, pos, {
       listEl: fileStack,
       boundsEl: container,
       onReorder: (from, to) => callbacks.onReorder(from, to),
@@ -178,7 +175,7 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
       startInlineEdit(nameEl, file.name, (v) => { if (v) { renameFile(project, file, v); callbacks.onChange({ scrollToFileIndex: fileIndex }); } });
     });
 
-    row.append(handle, nameEl);
+    row.append(nameEl);
     return row;
   }
 
@@ -191,15 +188,12 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
     // or unfolds it; on the name's text it renames instead (below).
     row.addEventListener('click', () => { if (!selected) callbacks.onSelectGroup(collection.id); });
     row.addEventListener('dblclick', (e) => {
-      if (e.target.closest('.drag-handle, .fold-arrow, button') || overText(nameEl, e)) return;
+      if (e.target.closest('.fold-arrow, button') || overText(nameEl, e)) return;
       collection.collapsed = !collection.collapsed;
       callbacks.onChange();
     });
 
-    const handle = document.createElement('div');
-    handle.className = 'drag-handle';
-    setIcon(handle, '⋮');
-    makeReorderable(handle, row, pos, {
+    makeReorderable(row, pos, {
       listEl: fileStack,
       boundsEl: container,
       onReorder: (from, to) => callbacks.onReorder(from, to),
@@ -223,7 +217,7 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
       startInlineEdit(nameEl, collection.name, (v) => { if (v) { collection.name = v; callbacks.onChange({ scrollToCollectionId: collection.id }); } });
     });
 
-    row.append(handle, nameEl, arrow);
+    row.append(nameEl, arrow);
     return row;
   }
 

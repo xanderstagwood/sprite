@@ -153,31 +153,48 @@ function createGhost(row) {
   return ghost;
 }
 
-// Pointer-based drag-to-reorder for a list of rows: press the handle,
-// drag over a sibling row to swap places (the rows between lift out of
-// the way to open a gap), drag past `boundsEl`'s edge to remove, release
-// to drop. Every reorderable list (file rows, layer rows) uses this one
+// Pointer-based drag-to-reorder for a list of rows: press anywhere on a row
+// and move a few pixels, then drag over a sibling row to swap places (the
+// rows between lift out of the way to open a gap), drag past `boundsEl`'s
+// edge to remove, release to drop. A press that does not move is left alone
+// (a click, a double-click to rename), as are presses on a control inside the
+// row. Every reorderable list (file rows, layer rows) uses this one
 // implementation instead of native HTML5 drag-and-drop, which requires
 // the browser to recognize a drag gesture from a mousedown+move before
-// dragstart even fires: unreliable to trigger from a small handle across
-// browsers/platforms, and prone to silently doing nothing.
+// dragstart even fires: unreliable across browsers/platforms, and prone
+// to silently doing nothing.
 //
 // `index` is the row's real array index (not its DOM position: a list
 // can render in a different order than its array, e.g. the layers panel
 // lists top-of-stack first). `listEl` scopes the sibling-shift query to
 // this row's own list; `boundsEl` is what "dragged off the panel" means
 // (typically the whole panel, wider than just the list).
-export function makeReorderable(handle, row, index, { listEl, boundsEl, onReorder, onRemove }) {
+export function makeReorderable(row, index, { listEl, boundsEl, onReorder, onRemove }) {
   row.dataset.reorderIndex = index;
-  handle.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
+  row.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('button, input, textarea, [contenteditable="true"], .fold-arrow, .eye-pip, .thumb-eye, .opacity-pip')) return;
+    const startX = e.clientX, startY = e.clientY;
+    const arm = (ev) => {
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) return;
+      disarm();
+      begin(e);
+    };
+    const disarm = () => {
+      window.removeEventListener('pointermove', arm);
+      window.removeEventListener('pointerup', disarm);
+    };
+    window.addEventListener('pointermove', arm);
+    window.addEventListener('pointerup', disarm);
+  });
+
+  function begin(e) {
     // Best-effort: capture keeps the drag tracking cleanly through other
     // elements, but move/up are bound to `window` below regardless (not
-    // `handle`), so the drag still works correctly even where capture
+    // `row`), so the drag still works correctly even where capture
     // isn't available or throws.
-    try { handle.setPointerCapture(e.pointerId); } catch { /* not required */ }
+    try { row.setPointerCapture(e.pointerId); } catch { /* not required */ }
+    const noSelect = (ev) => ev.preventDefault(); // dragging across the panel's text would select it
+    document.addEventListener('selectstart', noSelect);
     row.classList.add('dragging');
 
     const rowRect = row.getBoundingClientRect();
@@ -241,18 +258,23 @@ export function makeReorderable(handle, row, index, { listEl, boundsEl, onReorde
       }
     }
     function onUp() {
-      try { handle.releasePointerCapture(e.pointerId); } catch { /* wasn't captured */ }
+      try { row.releasePointerCapture(e.pointerId); } catch { /* wasn't captured */ }
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      document.removeEventListener('selectstart', noSelect);
       row.classList.remove('dragging', 'removing');
       resetShift();
       ghost.remove();
+      // The release would also be a click on the row: it was a drag, so swallow it.
+      const swallow = (ev) => ev.stopPropagation();
+      row.addEventListener('click', swallow, true);
+      setTimeout(() => row.removeEventListener('click', swallow, true));
       if (outside && onRemove) onRemove(index);
       else if (dropIndex !== index) onReorder(index, dropIndex);
     }
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
-  });
+  }
 }
 
 function applyShiftPreview(items, fromIdx, toIdx, axis) {

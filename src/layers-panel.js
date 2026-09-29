@@ -114,10 +114,6 @@ export function renderLayersPanel(container, file, callbacks, focusedGroupId, la
     });
     thumbWrap.append(opacityPip);
 
-    const handle = document.createElement('div');
-    handle.className = 'drag-handle';
-    setIcon(handle, '⋮');
-
     const label = document.createElement('div');
     label.className = 'layer-label';
     label.textContent = layer.name;
@@ -126,7 +122,7 @@ export function renderLayersPanel(container, file, callbacks, focusedGroupId, la
       startInlineEdit(label, layer.name, (v) => { if (v) { layer.name = v; callbacks.onRename(); } });
     });
 
-    row.append(thumbWrap, handle, label);
+    row.append(thumbWrap, label);
     row.addEventListener('click', (e) => {
       // Shift/Alt-click build a multi-layer selection instead of switching
       // the active layer: same pattern as the file list's rows.
@@ -137,7 +133,7 @@ export function renderLayersPanel(container, file, callbacks, focusedGroupId, la
       if (i === file.activeLayerIndex && !multiSelection) return;
       callbacks.onSelect(i);
     });
-    makeReorderable(handle, row, pos, {
+    makeReorderable(row, pos, {
       listEl: stack,
       boundsEl: container,
       onReorder: (from, to) => callbacks.onReorder(from, to),
@@ -152,10 +148,7 @@ export function renderLayersPanel(container, file, callbacks, focusedGroupId, la
     row.className = 'layer-group-header tile reveal-on-hover' + (group.id === focusedGroupId ? ' selected' : '') + (pos >= selLo && pos <= selHi ? ' layer-row--selected' : '');
     row.dataset.groupId = group.id;
 
-    const handle = document.createElement('div');
-    handle.className = 'drag-handle';
-    setIcon(handle, '⋮');
-    makeReorderable(handle, row, pos, {
+    makeReorderable(row, pos, {
       listEl: stack,
       boundsEl: container,
       onReorder: (from, to) => callbacks.onReorder(from, to),
@@ -187,12 +180,12 @@ export function renderLayersPanel(container, file, callbacks, focusedGroupId, la
     });
 
     // The fold arrow sits at the right edge, after the visibility pip.
-    row.append(handle, label, eyePip, arrow);
+    row.append(label, eyePip, arrow);
     // A click selects the group. A double click on empty space in the row folds or
     // unfolds it; on the name's text it renames instead (above).
     row.addEventListener('click', () => { if (group.id !== focusedGroupId) callbacks.onSelectGroup(group.id); });
     row.addEventListener('dblclick', (e) => {
-      if (e.target.closest('.drag-handle, .fold-arrow, .eye-pip, button') || overText(label, e)) return;
+      if (e.target.closest('.fold-arrow, .eye-pip, button') || overText(label, e)) return;
       group.collapsed = !group.collapsed;
       callbacks.onChange();
     });
@@ -241,17 +234,13 @@ export function renderLayersPanel(container, file, callbacks, focusedGroupId, la
       const label = document.createElement('div');
       label.className = 'layer-label';
       label.textContent = isResolved(ref) ? ref.name : `${ref.name} (click to relink)`;
-      const handle = document.createElement('div');
-      handle.className = 'drag-handle';
-      setIcon(handle, '⋮');
-      makeReorderable(handle, row, refIndex, {
+      makeReorderable(row, refIndex, {
         listEl: section,
         boundsEl: container,
         onReorder: (from, to) => callbacks.onReorderReference(from, to),
         onRemove: () => callbacks.onRemoveReference(ref.id),
       });
       row.append(
-        handle,
         label,
         button({ glyph: '⤢', icon: true, className: 'btn--reveal', title: 'Fit to canvas / full size (:)', onClick: (e) => { e.stopPropagation(); callbacks.onToggleReferenceMode(ref.id); } }),
       );

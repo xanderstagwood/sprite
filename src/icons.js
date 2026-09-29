@@ -8,10 +8,10 @@
 // A caller may pass the character the icon replaced ('+', '✕', ...) or the
 // icon's name ('bug', 'project', ...); `keyIcon` takes a key's name.
 const FROM_CHARACTER = {
-  '+': 'new', '✕': 'remove', '⋮': 'grab', '⋯': 'menu', '☰': 'menu', '↓': 'import',
+  '+': 'new', '✕': 'remove', '⋯': 'menu', '☰': 'menu', '↓': 'import',
   '◈': 'onion', '⤢': 'resize', '⌕': 'zoom', '▸': 'folded', '▾': 'unfolded',
 };
-const NAMES = new Set(['bug', 'discord', 'heart', 'help', 'zoom', 'new', 'resize', 'import', 'export', 'menu', 'project', 'remove', 'visibility', 'unfolded', 'folded', 'sprite', 'pixi', 'onion', 'grab', 'users']);
+const NAMES = new Set(['bug', 'discord', 'heart', 'help', 'zoom', 'new', 'resize', 'import', 'export', 'menu', 'project', 'remove', 'visibility', 'unfolded', 'folded', 'sprite', 'pixi', 'onion', 'users']);
 const KEYS = new Set(['ctrl', 'alt', 'shift', 'super', 'return', 'space', 'backspace', 'tab', 'up', 'down', 'left', 'right']);
 
 const resolve = (name) => FROM_CHARACTER[name] || (NAMES.has(name) ? name : null);

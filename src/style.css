@@ -223,7 +223,7 @@
 .btn.selected:hover, .btn.active:hover { background: var(--accent-dark); }
 .btn:disabled { opacity: var(--opacity-muted); pointer-events: none; }
 
-/* Square, icon-font glyph, no text padding: grab handles, hamburgers,
+/* Square, icon-font glyph, no text padding: hamburgers,
    the +/resize/delete buttons. */
 .btn--icon { width: var(--block); flex: 0 0 var(--block); padding: 0; font-family: var(--icon-font); }
 /* Fill button (design system: Button/Tile/Tile-bar/Panel): fills the full
@@ -1068,7 +1068,7 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
   mask: center / 100% 100% no-repeat;
   pointer-events: none;
 }
-/* Every icon you can act on is dim like the grab handles and fold arrows: faint at rest, full on hover or focus,
+/* Every icon you can act on is dim like the fold arrows: faint at rest, full on hover or focus,
    dark red when its button is switched on (the accent fill it sits on). */
 .btn .icon { background: var(--text-faint); }
 .btn:hover .icon, .btn:focus-visible .icon { background: var(--text-primary); }
@@ -1102,9 +1102,8 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
 .file-row-name {
   flex: 1 1 auto;
   /* Literal padding, not flex-centered inside a taller row: see
-     .project-name. No left padding: the grab handle immediately to its
-     left is a block element and already carries that clearance itself. */
-  padding: var(--pad) var(--pad) var(--pad) 0;
+     .project-name. A canvas inside a collection is indented further. */
+  padding: var(--pad) var(--pad) var(--pad) calc(var(--pad) * 2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1180,9 +1179,6 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
    DOM order, so its divider needs to face the other way: a line above it
    (from the list it's now under), not below. */
 #open-project-panel .side-panel-title { box-shadow: inset 0 var(--border-width) 0 var(--hairline); }
-/* No drag-handle on these rows (unlike file rows, whose handle supplies
-   the name's left clearance): needs its own. */
-#open-project-panel .file-row-name { padding-left: var(--pad); }
 /* The docked side panel that slides out next to Project (Open Project)
    rather than being one of the four primary edge panels: a title row plus a
    scrollable body. */
@@ -1342,36 +1338,15 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
    `translate` on such an element has to add them (see .icon--menu). */
 :where([style*="--snap"]) { translate: var(--snap-x, 0px) var(--snap-y, 0px); }
 
-/* Grab handle: the one drag point for reordering a layer/file row: a
-   plain character (vertical ellipsis; the Braille all-dots glyph it used
-   to be renders as a solid blob at this size in the icon-font fallback
-   stack, reading as a drawn square instead of text), sized by font-size
-   like every other icon so it drops onto the same grid. */
-.drag-handle {
-  font-family: var(--icon-font);
-  flex: 0 0 var(--block);
-  height: 100%;
-  --cursor: grab;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--font-body);
-  color: var(--text-faint);
-}
-.drag-handle:hover { color: var(--text-primary); }
-/* The dots are the icon's left-hand column: shift the icon so they sit in the middle of the handle's block, with equal room either side. */
-.drag-handle .icon { translate: calc(var(--icon-px) * 2.5 + var(--snap-x, 0px)) var(--snap-y, 0px); }
-/* On the red of a selected or menu-owning row the faint grey has about the same value as the fill: a dark red instead, so it recedes but reads. */
-.tile.selected .drag-handle, .tile.active .drag-handle,
+/* On the red of a selected row the faint grey has about the same value as the fill: a dark red instead, so it recedes but reads. */
 .tile.selected .fold-arrow, .tile.active .fold-arrow { color: var(--accent-dark); }
-.tile.selected .drag-handle:hover, .tile.active .drag-handle:hover { color: var(--text-primary); }
 
 /* Collection/group header fold toggle: the one clickable element that
    collapses/expands; the name text itself only renames (double-click), it
    no longer also folds on a plain click. */
 .fold-arrow {
   font-family: var(--icon-font);
-  /* The padding gives the arrow the room to its right that the grab handle's dots have to their left, without moving the arrow. */
+  /* The padding gives the arrow the room to its right that the collab button keeps at its sides, without moving the arrow. */
   flex: 0 0 calc(var(--block) + var(--icon-px) * 2.5);
   padding-right: calc(var(--icon-px) * 2.5);
   height: 100%;
