@@ -29,6 +29,7 @@ export function createSession({ createPeer = defaultCreatePeer } = {}) {
   const participants = new Map(); // participant id -> { id, role, name }
   const handlers = new Map(); // message type -> Set<handler>
   let hostPeerId = null; // a guest's only connection
+  let token = null; // the host's join secret, rotated by kick(): the only thing that keeps a kicked guest out
 
   function emit(type, payload, fromId) {
     for (const handler of handlers.get(type) || []) handler(payload, fromId);
@@ -64,6 +65,7 @@ export function createSession({ createPeer = defaultCreatePeer } = {}) {
     conn.on('close', () => {
       connections.delete(participantId);
       participants.delete(participantId);
+      if (role === 'guest') participants.clear(); // the host was this guest's whole session
       emit('participant-left', { id: participantId });
       if (role === 'host') broadcastRoster();
     });
@@ -89,9 +91,13 @@ export function createSession({ createPeer = defaultCreatePeer } = {}) {
 
   async function host() {
     role = 'host';
+    token = crypto.randomUUID();
     peer = await createPeer();
     participants.set(peer.id, { id: peer.id, role: 'host', name: 'Host' });
     peer.on('connection', (conn) => {
+      // No token, or a stale one from before a kick: dropped with no message,
+      // exactly as if the connection had failed.
+      if (conn.metadata?.token !== token) { conn.on('open', () => conn.close()); return; }
       // Host + 2 guests is the hard cap: turn a third away before it is
       // wired into anything, telling it why instead of just hanging up.
       if (connections.size >= MAX_GUESTS) {
@@ -112,11 +118,11 @@ export function createSession({ createPeer = defaultCreatePeer } = {}) {
     return peer.id;
   }
 
-  async function join(hostId) {
+  async function join(hostId, joinToken) {
     role = 'guest';
     hostPeerId = hostId;
     peer = await createPeer();
-    const conn = peer.connect(hostId);
+    const conn = peer.connect(hostId, { metadata: { token: joinToken } });
     connections.set(hostId, conn);
     wireConnection(conn, hostId);
     await new Promise((resolve) => conn.on('open', resolve));
@@ -141,6 +147,17 @@ export function createSession({ createPeer = defaultCreatePeer } = {}) {
     handlers.get(type).add(handler);
     return () => handlers.get(type)?.delete(handler);
   }
+
+  // Host only. The kicked guest just sees its connection close. The token
+  // rotates so the link it holds stops working; remaining guests are already
+  // connected and need nothing (there is no reconnect to hand a token to).
+  function kick(id) {
+    if (role !== 'host' || !connections.has(id)) return;
+    token = crypto.randomUUID();
+    connections.get(id).close();
+  }
+
+  function getToken() { return token; }
 
   function setName(raw) {
     const name = sanitizeName(raw);
@@ -177,7 +194,8 @@ export function createSession({ createPeer = defaultCreatePeer } = {}) {
     role = null;
     peer = null;
     hostPeerId = null;
+    token = null;
   }
 
-  return { host, join, send, sendTo, setName, sample, getSelfId, onMessage, getRole, getParticipants, leave };
+  return { host, join, send, sendTo, kick, getToken, setName, sample, getSelfId, onMessage, getRole, getParticipants, leave };
 }

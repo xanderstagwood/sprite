@@ -835,10 +835,19 @@ async function endCollab() {
   redrawProjectPanel();
 }
 
+// Ctrl-click on a guest's cursor icon or name in the presence tile. The token rotates, so the old link is
+// dead: the host's clipboard gets the new one to re-invite with.
+function kickGuest(id) {
+  if (collabSession?.getRole() !== 'host') return;
+  collabSession.kick(id);
+  remoteCursors.delete(id);
+  navigator.clipboard.writeText(makeJoinLink(collabSession.getSelfId(), collabSession.getToken())).catch(() => { /* clipboard write can be denied: the link is then only recoverable by restarting */ });
+}
+
 async function toggleGoLive() {
   if (collabSession) { await endCollab(); return; }
-  let code = null;
-  try { code = parseJoinCode(await navigator.clipboard.readText()); } catch { /* clipboard read can be denied; treat as no code */ }
+  let target = null;
+  try { target = parseJoinCode(await navigator.clipboard.readText()); } catch { /* clipboard read can be denied; treat as no code */ }
   collabSession = createSession();
   strokeSync = createStrokeSync({ session: collabSession, resolveTarget: resolveStrokeTarget, requestRender: (target) => { if (target?.file) autosave(target.file); draw(); } });
   collabSession.onMessage(MSG.CURSOR, (payload, fromId) => { remoteCursors.set(fromId, payload); needsRender = true; });
@@ -850,12 +859,12 @@ async function toggleGoLive() {
   });
   redrawProjectPanel(); // shows the waiting pulse straight away, while the connection is still being made
   try {
-    if (code) {
+    if (target) {
       // The host relays every guest's messages to the other guests, so
       // these two are only believed from the host itself.
-      const remote = createRemoteHostBackend(collabSession, code);
+      const remote = createRemoteHostBackend(collabSession, target.hostId);
       collabSession.onMessage(MSG.PROJECT, async (payload, fromId) => {
-        if (fromId !== code || typeof payload?.id !== 'string') return;
+        if (fromId !== target.hostId || typeof payload?.id !== 'string') return;
         const shared = await loadProject(remote, payload.id).catch((err) => { console.error('Could not load the host\'s project', err); return null; });
         if (!shared || !collabSession) return;
         const first = !localSession;
@@ -863,8 +872,8 @@ async function toggleGoLive() {
         await switchToProject(shared, { save: first }); // first swap flushes the local project, while `backend` is still the local one
         backend = remote;
       });
-      collabSession.onMessage(MSG.RESYNC, (_, fromId) => { if (fromId === code && localSession) reloadFromHost(); });
-      await collabSession.join(code);
+      collabSession.onMessage(MSG.RESYNC, (_, fromId) => { if (fromId === target.hostId && localSession) reloadFromHost(); });
+      await collabSession.join(target.hostId, target.token);
       if (uiPrefs.collabName) collabSession.setName(uiPrefs.collabName);
     } else {
       const hostBackend = backend;
@@ -872,7 +881,7 @@ async function toggleGoLive() {
       collabSession.onMessage('participant-joined', ({ id }) => collabSession.sendTo(id, MSG.PROJECT, { id: project.id }));
       const hostId = await collabSession.host();
       if (uiPrefs.collabName) collabSession.setName(uiPrefs.collabName);
-      await navigator.clipboard.writeText(makeJoinLink(hostId));
+      await navigator.clipboard.writeText(makeJoinLink(hostId, collabSession.getToken()));
     }
   } catch (err) {
     console.error('Collab session failed to start', err);
@@ -1339,7 +1348,8 @@ function redrawProjectPanel() {
     onSplitProject: () => splitProject(),
     onGoLive: () => toggleGoLive(),
     collabState: collabState(),
-    collabParticipants: () => collabSession?.getParticipants().map((p) => ({ ...p, color: presenceColor(p), isSelf: p.id === collabSession.getSelfId() })) || [],
+    collabParticipants: () => collabSession?.getParticipants().sort((a, b) => (a.role === 'host' ? 0 : a.slot || 1) - (b.role === 'host' ? 0 : b.slot || 1)).map((p) => ({ ...p, color: presenceColor(p), isSelf: p.id === collabSession.getSelfId() })) || [],
+    onKick: kickGuest,
     onRenameSelf: (name) => { uiPrefs.collabName = name; saveUiPrefs(uiPrefs); collabSession?.setName(name); },
     // Double click on New File: same size as whichever canvas was last worked
     // on, wherever it lives; the new-project default only if nothing was.

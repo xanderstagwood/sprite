@@ -388,9 +388,16 @@ h1, h2, .header-text {
   color: #fff;
   background: rgba(0, 0, 0, 0.7);
 }
-/* Presence rows under the Collab button: one per participant, color chip then name. */
-.presence-row .presence-chip { flex: 0 0 var(--block); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6); background: var(--collab-color); }
-.presence-row .presence-name { flex: 1 1 auto; display: flex; align-items: center; padding: 0 var(--pad, 8px); overflow: hidden; white-space: nowrap; }
+/* Presence: one tile under the Collab button, a slot per collaborator (host, guest 1, guest 2), cursor icon in their color then name. */
+.presence-tile { gap: var(--pad); padding: 0 var(--pad); }
+/* Sized to their names so host + two default-named guests fit the panel width; a long custom name is what ellipsizes. */
+.presence-slot { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--pad); }
+/* Guest 2's black cursor would vanish on the dark tile: outline it a pixel on every side. */
+.presence-slot .icon {
+  background: var(--collab-color);
+  filter: drop-shadow(var(--icon-px) 0 0 var(--text-faint)) drop-shadow(calc(var(--icon-px) * -1) 0 0 var(--text-faint)) drop-shadow(0 var(--icon-px) 0 var(--text-faint)) drop-shadow(0 calc(var(--icon-px) * -1) 0 var(--text-faint));
+}
+.presence-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 /* Invisible edge-hover zones that reveal a panel (§15). */
 .edge-trigger { position: absolute; z-index: var(--z-trigger); }

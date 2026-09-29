@@ -14,15 +14,16 @@ export const MSG = {
 // string parsing, no routing, the app reads its own location on load.
 const LINK_MARKER = 'sprite-collab=';
 
-export function makeJoinLink(hostId) {
+export function makeJoinLink(hostId, token) {
   const base = typeof location !== 'undefined' ? location.origin + location.pathname : '';
-  return `${base}#${LINK_MARKER}${hostId}`;
+  return `${base}#${LINK_MARKER}${hostId}.${token}`;
 }
 
-// Pulls a host id out of arbitrary clipboard text (a pasted link, or just
-// the bare code): null if nothing matching is present, never throws.
+// Pulls { hostId, token } out of arbitrary clipboard text (a pasted link, or
+// just the bare code): null if nothing matching is present, never throws.
+// The token is what a kick rotates, so a link from before it stops working.
 export function parseJoinCode(text) {
   if (!text) return null;
-  const m = String(text).match(new RegExp(`${LINK_MARKER}([\\w-]+)`));
-  return m ? m[1] : null;
+  const m = String(text).match(new RegExp(`${LINK_MARKER}([\\w-]+)\\.([\\w-]+)(?![\\w.-])`));
+  return m ? { hostId: m[1], token: m[2] } : null;
 }

@@ -11,7 +11,7 @@ const FROM_CHARACTER = {
   '+': 'new', '✕': 'remove', '⋮': 'grab', '⋯': 'menu', '☰': 'menu', '↓': 'import',
   '◈': 'onion', '⤢': 'resize', '⌕': 'zoom', '▸': 'folded', '▾': 'unfolded',
 };
-const NAMES = new Set(['bug', 'discord', 'heart', 'help', 'zoom', 'new', 'resize', 'import', 'export', 'menu', 'project', 'remove', 'visibility', 'unfolded', 'folded', 'sprite', 'pixi', 'onion', 'grab']);
+const NAMES = new Set(['bug', 'discord', 'heart', 'help', 'zoom', 'new', 'resize', 'import', 'export', 'menu', 'project', 'remove', 'visibility', 'unfolded', 'folded', 'sprite', 'pixi', 'onion', 'grab', 'cursor']);
 const KEYS = new Set(['ctrl', 'alt', 'shift', 'super', 'return', 'space', 'backspace', 'tab', 'up', 'down', 'left', 'right']);
 
 const resolve = (name) => FROM_CHARACTER[name] || (NAMES.has(name) ? name : null);

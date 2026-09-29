@@ -3,6 +3,7 @@ import { visibleOrder } from './ordering.js';
 import { openSlideOut, openCustomSlideOut, closeSlideOut } from './slide-out.js';
 import { overText } from './text-hit.js';
 import { button, setIcon, hoverTip, makeReorderable, startInlineEdit } from './ui.js';
+import { iconElement } from './icons.js';
 
 // Project panel (ui-design-system §7, design-doc §13). `state` is the
 // { project } holder in main.js; callbacks mutate it and call onChange to
@@ -219,21 +220,31 @@ export function renderProjectPanel(container, project, callbacks, focusedCollect
   // `addRow` is a sibling of the scrollable `fileList`, not a child of its
   // stack, so it stays anchored above the panel footer instead of scrolling
   // away with a long file list.
-  // One row per collaborator under the Collab button; the local one is click-to-rename.
-  const presenceRows = (callbacks.collabParticipants?.() || []).map((p) => {
-    const row = document.createElement('div');
-    row.className = 'tile presence-row';
-    row.style.setProperty('--collab-color', p.color);
-    const chip = document.createElement('div');
-    chip.className = 'presence-chip';
-    const nameEl = document.createElement('div');
-    nameEl.className = 'presence-name';
-    nameEl.textContent = p.name;
-    if (p.isSelf) nameEl.addEventListener('click', () => startInlineEdit(nameEl, p.name, (v) => { if (v) callbacks.onRenameSelf(v); }));
-    row.append(chip, nameEl);
-    return row;
-  });
-  container.append(fileList, addRow, buildCapacityMeter(project, callbacks), header, goLiveBtn, ...presenceRows);
+  // One tile under the Collab button, a slot per collaborator (cursor icon in
+  // their color, then name). The local name click-renames; on the host,
+  // Ctrl-click on anyone else's icon or name kicks them.
+  const people = callbacks.collabParticipants?.() || [];
+  const presenceTile = people.length && document.createElement('div');
+  if (presenceTile) {
+    presenceTile.className = 'tile presence-tile';
+    for (const p of people) {
+      const slot = document.createElement('div');
+      slot.className = 'presence-slot';
+      slot.style.setProperty('--collab-color', p.color);
+      const nameEl = document.createElement('span');
+      nameEl.className = 'presence-name';
+      nameEl.textContent = p.name;
+      slot.append(iconElement('cursor'), nameEl);
+      if (p.isSelf) nameEl.addEventListener('click', () => startInlineEdit(nameEl, p.name, (v) => { if (v) callbacks.onRenameSelf(v); }));
+      else if (callbacks.onKick) {
+        slot.addEventListener('click', (e) => { if (e.ctrlKey) callbacks.onKick(p.id); });
+        // Where Ctrl-click means right-click (macOS) the browser sends contextmenu instead.
+        slot.addEventListener('contextmenu', (e) => { if (e.ctrlKey) { e.preventDefault(); callbacks.onKick(p.id); } });
+      }
+      presenceTile.append(slot);
+    }
+  }
+  container.append(fileList, addRow, buildCapacityMeter(project, callbacks), header, goLiveBtn, ...(presenceTile ? [presenceTile] : []));
   fileList.scrollTop = scrollTop;
 }
 
