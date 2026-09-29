@@ -1039,10 +1039,6 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
   height: var(--block);
   box-shadow: inset 0 var(--border-width) 0 var(--hairline); /* divider from the file list above it */
 }
-/* Not a `.tile` (it's the one fixed row, never a selectable list item), so
-   it needs its own copy of the same red "this row owns the open menu"
-   highlight `.tile.active` gives file/collection/layer/group rows. */
-.project-header.active { background: var(--accent); color: var(--text-primary); }
 .project-name {
   flex: 1 1 auto;
   /* Literal 1em padding on top/bottom/right: not centered inside a taller
@@ -1460,6 +1456,6 @@ body:is([data-hint="folder"], [data-hint="menu"], [data-hint="new"]) .edge-trigg
 .file-row-name, .layer-label, .project-name { color: var(--text-secondary); }
 .file-row .file-row-name { color: var(--text-tertiary); }
 .tile:hover .file-row-name, .tile:hover .layer-label, .project-header:hover .project-name,
-.tile.selected .file-row-name, .tile.active .file-row-name, .tile.selected .layer-label, .tile.active .layer-label, .project-header.active .project-name,
+.tile.selected .file-row-name, .tile.active .file-row-name, .tile.selected .layer-label, .tile.active .layer-label,
 .file-row-name[contenteditable="true"], .layer-label[contenteditable="true"], .project-name[contenteditable="true"] { color: var(--text-primary); }
 

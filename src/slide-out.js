@@ -119,9 +119,9 @@ function pinToContentWidth(bar) {
   bar.style.width = Math.round(bar.getBoundingClientRect().width * dpr) / dpr + 'px'; // round, not ceil: a float error of 0.000001 would add a whole pixel
 }
 
-// Whichever row/header owns a currently-open slide-out gets the same red
+// Whichever row owns a currently-open slide-out gets the same red
 // `.active` highlight a selected row already uses: the whole file,
-// collection, layer, group, or project row, not just its small "⋯" menu
+// collection, layer or group row, not just its small "⋯" menu
 // button, so it reads as "this is what the menu is for" at a glance.
 // Tracked here (not just inside one openSlideOut() call's own closure) so
 // the force-close below, when a second menu opens before the first was
@@ -133,10 +133,10 @@ let activeAnchor = null;
 // the panel can't otherwise tell the difference between "the mouse left
 // for good" and "the mouse is just over the menu I opened."
 let activeOwnerPanel = null;
-// Only a row lights up. A standalone button (the palettes menu, the add buttons)
-// keeps its normal look while its menu is open.
+// Only a row lights up. A standalone button (the palettes menu, the add buttons,
+// the project header's menu) keeps its normal look while its menu is open.
 function anchorRow(anchor) {
-  return anchor.closest('.tile, .project-header');
+  return anchor.closest('.tile');
 }
 function clearActiveSlideOut() {
   if (activeAnchor) activeAnchor.classList.remove('active');

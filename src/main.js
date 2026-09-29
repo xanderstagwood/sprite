@@ -54,7 +54,7 @@ import { debugAlerts } from './debug-alerts.js'; // DEBUG
 import { planCanvas, planTimeline, planLayers, planColors, planProject } from './export-plan.js';
 import { unzipSync } from 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
 import { SHAPE_OUTLINES, constrainSquare } from './shapes.js';
-import { openSlideOut, snapPx } from './slide-out.js';
+import { openSlideOut, closeSlideOut, snapPx } from './slide-out.js';
 import { visibleOrder } from './ordering.js';
 import { watchPixelSnap } from './pixel-snap.js';
 import { watchTextSnap } from './text-snap.js';
@@ -1889,6 +1889,8 @@ window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault()
 window.addEventListener('drop', (e) => { if (hasFiles(e)) e.preventDefault(); });
 
 function openProjectPicker(anchor) {
+  // The docked project list is part of this menu: while it is up, the button closes it (and whatever menu is over it).
+  if (openProjectReveal.isPinned()) { openProjectReveal.forceHide(); closeSlideOut(); return; }
   setHint('new');
   const options = [
     { label: 'New', className: 'hint-target', keys: 'Alt++', onClick: () => newProject() },
