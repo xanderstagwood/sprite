@@ -5,6 +5,6 @@
 export const VERSION = '0.8.9';
 
 export const GITHUB_ISSUES_URL = 'https://github.com/xanderstagwood/sprite/issues/new?template=bug_report.yml';
-export const ITCH_IO_URL = 'https://xanderstagwood.itch.io/sprite';
+export const GITHUB_URL = 'https://github.com/xanderstagwood/sprite';
 export const KOFI_URL = 'https://ko-fi.com/xanderstagwood';
 export const DISCORD_URL = 'https://discord.gg/TFvXQdrjYM';

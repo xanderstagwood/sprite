@@ -17,7 +17,7 @@ const DEFAULTS = {
   // of its own (every artboard is always transparent): just its own `U`
   // backdrop, separate from the single-file canvas's above.
   groupAppBg: 'white',
-  hint: 'folder', // first-run hint: which control pulses next (folder, menu, new, colors), 'done' once all are used
+  hint: 'folder', // first-run hint: which control pulses next (folder, menu, new, colors, kofi, discord), 'done' once all are used
 };
 
 let folder = null; // the connected-folder backend that mirrors prefs, if any

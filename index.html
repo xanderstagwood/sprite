@@ -47,6 +47,12 @@
   <script>
     // A failed startup otherwise leaves a blank page with the reason only in
     // the console; print the errors on the page, selectable, with Copy/Close.
+    // The Report an issue button pulses while the box is up (body[data-report]),
+    // and past Close or a reload only if the error was copied, until that button
+    // is clicked (main.js clears it).
+    const REPORT_KEY = 'sprite-report-pending';
+    const copied = () => { try { return !!localStorage.getItem(REPORT_KEY); } catch { return false; } };
+    if (copied()) document.body.dataset.report = '';
     for (const type of ['error', 'unhandledrejection']) {
       window.addEventListener(type, (e) => {
         const reason = e.reason || e.error;
@@ -57,7 +63,10 @@
           box.id = 'startup-error';
           box.style.cssText = 'position:fixed;inset:0 0 auto 0;z-index:99999;padding:8px;background:#7A0C18;color:#fff;font:12px monospace';
           const bar = box.appendChild(document.createElement('div'));
-          for (const [label, act] of [['Copy', () => navigator.clipboard.writeText(box.querySelector('pre').textContent)], ['Close', () => box.remove()]]) {
+          document.body.dataset.report = '';
+          const copy = () => navigator.clipboard.writeText(box.querySelector('pre').textContent).then(() => { try { localStorage.setItem(REPORT_KEY, '1'); } catch { /* unavailable: the pulse ends with the page */ } });
+          const close = () => { box.remove(); if (!copied()) delete document.body.dataset.report; };
+          for (const [label, act] of [['Copy', copy], ['Close', close]]) {
             const b = bar.appendChild(document.createElement('button'));
             b.textContent = label;
             b.style.cssText = 'margin-right:8px;font:inherit';

@@ -1303,7 +1303,9 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
 body[data-hint="folder"] .project-icon .icon,
 body:is([data-hint="menu"], [data-hint="new"]) .project-menu .icon,
 body[data-hint="colors"] .palette-hamburger .icon,
-body[data-hint="kofi"] .kofi-btn .icon { background: var(--accent); animation: nudge-pulse 1.4s ease-in-out infinite; }
+body[data-hint="kofi"] .kofi-btn .icon,
+body[data-hint="discord"] .discord-btn .icon,
+body[data-report] .bug-btn .icon { background: var(--accent); animation: nudge-pulse 1.4s ease-in-out infinite; }
 body[data-hint="new"] .hint-target { animation: nudge-pulse 1.4s ease-in-out infinite; }
 body:is([data-hint="folder"], [data-hint="menu"], [data-hint="new"]) .edge-trigger-left::after {
   content: '';
@@ -1321,7 +1323,7 @@ body:is([data-hint="folder"], [data-hint="menu"], [data-hint="new"]) .edge-trigg
 @media (prefers-reduced-motion: reduce) {
   .alert-pulse { animation: none; }
   .btn.collab-waiting { animation: none; opacity: 1; }
-  body[data-hint] .icon, body[data-hint] .hint-target, body[data-hint] .edge-trigger-left::after { animation: none; opacity: 1; }
+  body[data-hint] .icon, body[data-report] .bug-btn .icon, body[data-hint] .hint-target, body[data-hint] .edge-trigger-left::after { animation: none; opacity: 1; }
   body[data-hint="new"] .hint-target { background: var(--accent); }
 }
 /* the project header's menu icon sits a device pixel higher than the row menus' */

@@ -36,7 +36,7 @@ import { createRemoteHostBackend, serveReads } from './collab/remote-host-backen
 import { createRevealablePanel } from './panel-reveal.js';
 import { createKeybindHelp } from './keybind-help.js';
 import { renderOpenProjectPanel } from './open-project-panel.js';
-import { VERSION, GITHUB_ISSUES_URL, ITCH_IO_URL, DISCORD_URL, KOFI_URL } from './version.js';
+import { VERSION, GITHUB_URL, GITHUB_ISSUES_URL, DISCORD_URL, KOFI_URL } from './version.js';
 import { loadUiPrefs, saveUiPrefs } from './ui-prefs.js';
 import { setIcon, startInlineEdit, onHoverTip, onAlert, showTip, button, flashTip, pickFile } from './ui.js';
 import { decodeImage, bitmapPixels } from './image-import.js';
@@ -87,7 +87,7 @@ const uiPrefs = await loadUiPrefs(backend);
 
 // First-run hints: one control at a time pulses, chosen by body[data-hint] (style.css). Steps only
 // move forward, and jump ahead if the user gets there first (Alt++ before ever opening the menu).
-const HINT_STEPS = ['folder', 'menu', 'new', 'colors', 'kofi', 'done'];
+const HINT_STEPS = ['folder', 'menu', 'new', 'colors', 'kofi', 'discord', 'done'];
 function setHint(step) {
   if (HINT_STEPS.indexOf(step) <= HINT_STEPS.indexOf(uiPrefs.hint)) return;
   uiPrefs.hint = step;
@@ -103,11 +103,17 @@ let activeReferenceId = null; // the reference `:` acts on: the one last added o
 // Buttons, not <a href>: the browser's status bubble showing a hovered link's URL
 // covers the tool tag, which is where these buttons' tips appear.
 const openLink = (glyph, title, url, className) => button({ glyph, icon: true, title, className, onClick: () => window.open(url, '_blank', 'noopener') });
-const landingBtn = openLink('sprite', `Sprite v${VERSION}`, ITCH_IO_URL);
-const bugBtn = openLink('bug', 'Report an issue.', GITHUB_ISSUES_URL);
-const discordBtn = openLink('discord', 'App Support (Discord)', DISCORD_URL);
+const landingBtn = openLink('sprite', `Sprite v${VERSION}`, GITHUB_URL);
+const bugBtn = openLink('bug', 'Report an issue.', GITHUB_ISSUES_URL, 'bug-btn');
+const discordBtn = openLink('discord', 'App Support (Discord)', DISCORD_URL, 'discord-btn');
 const kofiBtn = openLink('heart', 'Become a supporter. (Kofi)', KOFI_URL, 'kofi-btn');
-kofiBtn.addEventListener('click', () => { if (uiPrefs.hint === 'kofi') setHint('done'); });
+kofiBtn.addEventListener('click', () => { if (uiPrefs.hint === 'kofi') setHint('discord'); });
+discordBtn.addEventListener('click', () => { if (uiPrefs.hint === 'discord') setHint('done'); });
+// index.html's error box pulses this button once its Copy has been used, until the report is opened.
+bugBtn.addEventListener('click', () => {
+  delete document.body.dataset.report;
+  try { localStorage.removeItem('sprite-report-pending'); } catch { /* unavailable: the pulse just ends with the page */ }
+});
 
 // Toggles the same Controls modal as "?".
 const helpBtn = button({ glyph: 'help', icon: true, title: 'Controls', onClick: () => keybindHelp.toggle() });
