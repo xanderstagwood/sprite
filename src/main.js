@@ -57,10 +57,12 @@ import { SHAPE_OUTLINES, constrainSquare } from './shapes.js';
 import { openSlideOut, snapPx } from './slide-out.js';
 import { visibleOrder } from './ordering.js';
 import { watchPixelSnap } from './pixel-snap.js';
+import { watchTextSnap } from './text-snap.js';
 import { watchCursorScale } from './cursors.js';
 import { installCursor, forceCursor, setCanvasCursor } from './inverted-cursor.js';
 
 watchPixelSnap(); // before anything measures the layout: font sizes set the grid
+watchTextSnap(); // after each layout change, every text run and icon is settled onto whole device pixels
 await watchCursorScale(); // before the first cursor is shown
 const canvas = document.getElementById('sprite-canvas');
 installCursor(canvas);
