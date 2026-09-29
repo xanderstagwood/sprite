@@ -715,6 +715,7 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
   flex: 0 0 auto;
   height: calc(var(--block) * 2);
   align-self: center;
+  padding-right: var(--border-width); /* a hairline of room to the right of every frame */
   border-top: var(--border-width) solid var(--black-a30); /* shares the layer-thumbnail hairline (§6) */
   --cursor: click;
 }
