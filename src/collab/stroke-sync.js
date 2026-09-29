@@ -1,4 +1,4 @@
-import { applyDiff } from '../canvas-model.js';
+import { applyDiff, colorIndex } from '../canvas-model.js';
 import { MSG } from './protocol.js';
 
 // Live pixel sync (§ collab plan, phase 2). Reuses the diff format
@@ -25,22 +25,42 @@ import { MSG } from './protocol.js';
 // anything malformed rather than let applyDiff write out of bounds or
 // leave the model in a self-inconsistent shape. Silently dropping a bad
 // message (with a warning) beats crashing the whole session over it.
-function isValidDiff(after, pixelCount, colorCount) {
-  if (!after || typeof after.length !== 'number' || after.length % 2 !== 0) return false;
+const HEX = /^#[0-9a-f]{6}$/i;
+const MAX_STROKE_COLORS = 256; // a brush stroke never legitimately touches more; caps table growth per message
+
+// Color indexes are per-file and append-only, so two participants' tables
+// diverge as soon as each adds a color. A stroke therefore ships the hex of
+// every index it uses, and the receiver re-interns those into its own table.
+// Returns the diff in the receiver's indexes, or null if anything is off.
+function remapDiff(after, colors, pixelCount, table) {
+  if (!after || typeof after.length !== 'number' || after.length % 2 !== 0) return null;
+  if (!colors || typeof colors !== 'object') return null;
+  const keys = Object.keys(colors);
+  if (keys.length > MAX_STROKE_COLORS) return null;
+  for (const k of keys) if (typeof colors[k] !== 'string' || !HEX.test(colors[k])) return null;
+  // Validate everything before interning anything, so a rejected stroke
+  // never leaves entries in the receiver's table.
   for (let k = 0; k < after.length; k += 2) {
-    if (!(after[k] >= 0 && after[k] < pixelCount)) return false;
-    // A color index a peer never should've had (past this file's own
-    // palette) writes fine into the Uint16 buffer either way - the real
-    // risk is downstream, where rendering indexes model.colors with it.
-    if (!(after[k + 1] >= 0 && after[k + 1] < colorCount)) return false;
+    const c = after[k + 1];
+    if (!(after[k] >= 0 && after[k] < pixelCount)) return null;
+    if (c !== 0 && !(Number.isInteger(c) && c > 0 && Object.hasOwn(colors, c))) return null;
   }
-  return true;
+  const out = new Uint32Array(after);
+  const local = new Map(); // sender index -> receiver index
+  for (let k = 1; k < after.length; k += 2) {
+    const c = after[k];
+    if (!c) continue;
+    if (!local.has(c)) local.set(c, colorIndex(table, colors[c]));
+    out[k] = local.get(c);
+  }
+  return out;
 }
 
 export function createStrokeSync({ session, resolveTarget, requestRender }) {
   function apply(target, payload) {
-    if (!isValidDiff(payload.after, target.pixels.length, target.colors.length)) { console.warn('Dropped a malformed collab stroke message'); return; }
-    applyDiff(target, payload.after);
+    const diff = remapDiff(payload.after, payload.colors, target.pixels.length, target.colors);
+    if (!diff) { console.warn('Dropped a malformed collab stroke message'); return; }
+    applyDiff(target, diff);
     requestRender?.(target);
   }
 
@@ -63,9 +83,14 @@ export function createStrokeSync({ session, resolveTarget, requestRender }) {
     // Call with whatever command history.commit just committed locally;
     // only pixel-edit diffs are streamable, anything else (layer/resize
     // snapshots) is silently skipped here.
-    sendStroke(command, { fileId, frame, layer }) {
+    sendStroke(command, { fileId, frame, layer, colors }) {
       if (command.type !== 'pixelEdit' || !command.after?.length) return;
-      session.send(MSG.STROKE, { fileId, frame, layer, after: command.after });
+      const used = {};
+      for (let k = 1; k < command.after.length; k += 2) {
+        const c = command.after[k];
+        if (c) used[c] = colors[c];
+      }
+      session.send(MSG.STROKE, { fileId, frame, layer, after: command.after, colors: used });
     },
   };
 }

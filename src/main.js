@@ -533,6 +533,9 @@ try {
 }
 uiPrefs.lastProjectId = project.id;
 saveUiPrefs(uiPrefs);
+// Declared up here because autosave() (called at startup) consults them.
+let collabSession = null; // null outside a live session
+let localSession = null; // a guest's own { backend, project }, restored when the session ends
 // A call naming the File it edited saves just that File; a bare call (every
 // rarer path: renames, moves, panel edits) sweeps them all, so a path that
 // forgets to name its File costs time, never data.
@@ -549,6 +552,7 @@ const flushAutosave = debounce(() => {
 });
 function autosave(file) {
   if (backend.kind === 'remote') return; // a guest's edits reach the host as strokes, never as saves
+  if (!file) structureChanged(); // a bare call is a structural edit (rename, move, panel edit)
   if (file) pendingFiles.add(file);
   else sweepAll = true;
   flushAutosave();
@@ -734,7 +738,6 @@ const playback = { fps: 8, onionSkin: false, onionLayerOnly: false, playing: fal
 // Collab (§ collab plan, phase 1: cursor sync only). `null` outside a
 // session; only created on the first Go Live click, so a solo user never
 // even fetches PeerJS (see peerjs-loader.js's lazy import).
-let collabSession = null;
 let strokeSync = null; // §phase 2: live pixel sync, created alongside collabSession
 const remoteCursors = new Map(); // participant id -> { x, y, name }
 let lastCursorSendAt = 0;
@@ -762,11 +765,34 @@ function resolveStrokeTarget({ fileId, frame, layer }) {
 
 // A guest swaps to the host's project over a remote backend; this is what
 // it left behind, restored when the session ends.
-let localSession = null; // { backend, project }
 let flushing = null;
 // One shared save however many reads ask, so a guest fetching a canvas sees
 // the host's latest strokes without the host saving once per chunk.
 const flushForGuests = (hostBackend) => () => flushing ||= saveProject(hostBackend, project).finally(() => { flushing = null; });
+
+// Only pixel diffs stream; a structural edit (layers, frames, resize,
+// renames, moves) is settled by reloading the project from the host's
+// saved copy. The host tells guests once its edits settle; a guest's own
+// structural edit can't be sent anywhere, so it just snaps back to the
+// host's version.
+const announceResync = debounce(() => collabSession?.send(MSG.RESYNC, {}), 500);
+function structureChanged() {
+  const role = collabSession?.getRole();
+  if (role === 'host') announceResync();
+  else if (role === 'guest' && localSession) reloadFromHost();
+}
+
+async function reloadFromHost() {
+  const activeName = getActiveFile(project).name;
+  const fresh = await loadProject(backend, project.id).catch((err) => { console.error('Resync failed', err); return null; });
+  if (!fresh || backend.kind !== 'remote') return;
+  fresh.activeFileIndex = Math.max(0, fresh.files.findIndex((f) => f.name === activeName));
+  project = fresh;
+  palette.setState(project.palette);
+  bindActiveFile();
+  redrawProjectPanel(); redrawLayersPanel(); redrawTimelinePanel();
+  draw();
+}
 
 async function endCollab() {
   collabSession?.leave();
@@ -794,19 +820,23 @@ async function toggleGoLive() {
   });
   try {
     if (code) {
+      // The host relays every guest's messages to the other guests, so
+      // these two are only believed from the host itself.
+      const remote = createRemoteHostBackend(collabSession, code);
       collabSession.onMessage(MSG.PROJECT, async (payload, fromId) => {
-        if (typeof payload?.id !== 'string' || localSession) return;
-        const remote = createRemoteHostBackend(collabSession, fromId);
+        if (fromId !== code || typeof payload?.id !== 'string') return;
         const shared = await loadProject(remote, payload.id).catch((err) => { console.error('Could not load the host\'s project', err); return null; });
         if (!shared || !collabSession) return;
-        localSession = { backend, project };
-        await switchToProject(shared); // flushes the local project first, while `backend` is still the local one
+        const first = !localSession;
+        if (first) localSession = { backend, project };
+        await switchToProject(shared, { save: first }); // first swap flushes the local project, while `backend` is still the local one
         backend = remote;
       });
+      collabSession.onMessage(MSG.RESYNC, (_, fromId) => { if (fromId === code && localSession) reloadFromHost(); });
       await collabSession.join(code);
     } else {
       const hostBackend = backend;
-      serveReads(collabSession, hostBackend, project.id, { beforeRead: flushForGuests(hostBackend) });
+      serveReads(collabSession, hostBackend, () => project.id, { beforeRead: flushForGuests(hostBackend) });
       collabSession.onMessage('participant-joined', ({ id }) => collabSession.sendTo(id, MSG.PROJECT, { id: project.id }));
       const hostId = await collabSession.host();
       await navigator.clipboard.writeText(makeJoinLink(hostId));
@@ -894,7 +924,8 @@ const history = {
     commitCommand(file, cmd);
     autosave(file);
     draw();
-    strokeSync?.sendStroke(cmd, { fileId: file.name, frame: file.activeFrameIndex, layer: file.activeLayerIndex });
+    strokeSync?.sendStroke(cmd, { fileId: file.name, frame: file.activeFrameIndex, layer: file.activeLayerIndex, colors: file.colors });
+    if (cmd.type !== 'pixelEdit') structureChanged();
   },
 };
 
@@ -1516,6 +1547,7 @@ async function switchToProject(newProject, { save = true } = {}) {
   redrawLayersPanel();
   redrawTimelinePanel();
   draw();
+  if (collabSession?.getRole() === 'host') collabSession.send(MSG.PROJECT, { id: project.id });
   autosave();
 }
 

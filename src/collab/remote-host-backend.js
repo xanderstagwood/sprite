@@ -47,12 +47,13 @@ const SAFE_NAME = (n) => typeof n === 'string' && n !== '.' && n !== '..' && !/[
 // Host side: answers a guest's read requests from its own backend. The one
 // place a peer can make the host touch storage, so it serves exactly the
 // shared project's flat files ([projectId, name]) and nothing else, whatever
-// the message claims. `beforeRead` lets the host flush unsaved edits first.
+// the message claims. `projectId` may be a getter, for a host that switches
+// projects mid-session. `beforeRead` lets the host flush unsaved edits first.
 export function serveReads(session, backend, projectId, { beforeRead } = {}) {
   session.onMessage(MSG.READ_REQ, async (req, fromId) => {
     const { id, op, path } = req || {};
     if (!Number.isInteger(id)) return;
-    const ok = (op === 'read' || op === 'readBytes') && Array.isArray(path) && path.length === 2 && path[0] === projectId && SAFE_NAME(path[1]);
+    const ok = (op === 'read' || op === 'readBytes') && Array.isArray(path) && path.length === 2 && path[0] === (typeof projectId === 'function' ? projectId() : projectId) && SAFE_NAME(path[1]);
     if (!ok) { session.sendTo(fromId, MSG.READ_RES, { id, data: null }); return; }
     try {
       await beforeRead?.();
