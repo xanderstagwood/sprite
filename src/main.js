@@ -46,6 +46,7 @@ import { paletteNameFromFile } from './palette-parse.js';
 import { isImageFile } from './image-import.js';
 import { addReference, removeReference, reorderReference, resolveReference, drawableReferences, referencesOf } from './references.js';
 import { quickExport, onExportProgress } from './export.js';
+import { debugAlerts } from './debug-alerts.js'; // DEBUG
 import { planCanvas, planTimeline, planLayers, planColors, planProject } from './export-plan.js';
 import { unzipSync } from 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
 import { SHAPE_OUTLINES, constrainSquare } from './shapes.js';
@@ -3020,6 +3021,8 @@ window.addEventListener('keydown', (e) => {
 
   if (e.key === '?') { keybindHelp.toggle(); return; }
 
+  if (debugAlerts.keydown(e)) return; // DEBUG
+
   // --- Global bindings (every focus) ---
   if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) { e.preventDefault(); doCopy(); return; }
   if (e.ctrlKey && (e.key === 'x' || e.key === 'X')) { e.preventDefault(); doCut(); return; }
@@ -3091,6 +3094,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keyup', (e) => {
+  debugAlerts.keyup(e); // DEBUG
   if (e.key.startsWith('Arrow')) {
     heldArrows.delete(e.key);
     if (heldArrows.size === 0) {
@@ -3179,6 +3183,7 @@ function resetHeldKeys() {
   arrowAnchor = null;
   rectSelecting = false;
   heldArrows.clear();
+  debugAlerts.reset(); // DEBUG
   arrowRepeater.stop();
   stampRepeater.stop();
   if (contentMoveActive) { selectionApi.commitContentMove(); contentMoveActive = false; }
