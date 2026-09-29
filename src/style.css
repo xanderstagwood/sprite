@@ -388,7 +388,7 @@ h1, h2, .header-text {
   color: #fff;
   background: rgba(0, 0, 0, 0.7);
 }
-/* Presence rows under Go Live: one per participant, color chip then name. */
+/* Presence rows under the Collab button: one per participant, color chip then name. */
 .presence-row .presence-chip { flex: 0 0 var(--block); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6); background: var(--collab-color); }
 .presence-row .presence-name { flex: 1 1 auto; display: flex; align-items: center; padding: 0 var(--pad, 8px); overflow: hidden; white-space: nowrap; }
 
@@ -1301,7 +1301,10 @@ body:is([data-hint="folder"], [data-hint="menu"], [data-hint="new"]) .edge-trigg
   animation: nudge-pulse 1.4s ease-in-out infinite;
   pointer-events: none;
 }
+/* Collab button while a session waits for a second person: breathes to the accent. */
+.btn.collab-waiting { background: var(--accent); animation: nudge-pulse 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
+  .btn.collab-waiting { animation: none; opacity: 1; }
   body[data-hint] .icon, body[data-hint] .hint-target, body[data-hint] .edge-trigger-left::after { animation: none; opacity: 1; }
   body[data-hint="new"] .hint-target { background: var(--accent); }
 }

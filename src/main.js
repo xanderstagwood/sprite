@@ -738,7 +738,7 @@ let rotating = null; // { snapshot, center } while R is held
 const playback = { fps: 8, onionSkin: false, onionLayerOnly: false, playing: false, timer: null };
 
 // Collab (§ collab plan, phase 1: cursor sync only). `null` outside a
-// session; only created on the first Go Live click, so a solo user never
+// session; only created on the first Collab click, so a solo user never
 // even fetches PeerJS (see peerjs-loader.js's lazy import).
 let strokeSync = null; // §phase 2: live pixel sync, created alongside collabSession
 const remoteCursors = new Map(); // participant id -> { x, y, name }
@@ -755,10 +755,11 @@ function startThrottle() {
   }, 1000);
 }
 
-function collabButtonLabel() {
-  if (!collabSession) return 'Go Live';
-  const role = collabSession.getRole();
-  return role === 'host' ? 'Hosting…' : role === 'guest' ? 'Connected' : 'Go Live';
+// 'idle' (no session), 'waiting' (in one, but nobody else has joined yet) or
+// 'live' (two or more participants): what the Collab button shows.
+function collabState() {
+  if (!collabSession) return 'idle'; // a session that is still connecting counts as waiting
+  return collabSession.getParticipants().length > 1 ? 'live' : 'waiting';
 }
 
 // Strokes name their canvas by File name + frame/layer index. Returns null
@@ -841,12 +842,13 @@ async function toggleGoLive() {
   collabSession = createSession();
   strokeSync = createStrokeSync({ session: collabSession, resolveTarget: resolveStrokeTarget, requestRender: (target) => { if (target?.file) autosave(target.file); draw(); } });
   collabSession.onMessage(MSG.CURSOR, (payload, fromId) => { remoteCursors.set(fromId, payload); needsRender = true; });
-  collabSession.onMessage('roster', redrawProjectPanel);
+  collabSession.onMessage('roster', redrawProjectPanel); // also what flips the button from waiting to live
   collabSession.onMessage(MSG.FULL, () => { console.warn('Session is full'); endCollab(); });
   collabSession.onMessage('participant-left', ({ id }) => {
     remoteCursors.delete(id);
     if (collabSession?.getRole() === 'guest') endCollab(); // a guest's only connection is the host: it's gone, so the session is over
   });
+  redrawProjectPanel(); // shows the waiting pulse straight away, while the connection is still being made
   try {
     if (code) {
       // The host relays every guest's messages to the other guests, so
@@ -1336,7 +1338,7 @@ function redrawProjectPanel() {
     onImport: (anchor) => pickFile('image/*,.sprite,.json', (f) => (isImageFile(f) ? importSpritesheet(f, { mode: 'frames', anchor }) : importProjectFile(f))),
     onSplitProject: () => splitProject(),
     onGoLive: () => toggleGoLive(),
-    collabLabel: collabButtonLabel(),
+    collabState: collabState(),
     collabParticipants: () => collabSession?.getParticipants().map((p) => ({ ...p, color: presenceColor(p), isSelf: p.id === collabSession.getSelfId() })) || [],
     onRenameSelf: (name) => { uiPrefs.collabName = name; saveUiPrefs(uiPrefs); collabSession?.setName(name); },
     // Double click on New File: same size as whichever canvas was last worked
