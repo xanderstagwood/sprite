@@ -33,15 +33,16 @@ export function createSession({ createPeer = defaultCreatePeer } = {}) {
   function wireConnection(conn, participantId) {
     conn.on('data', (msg) => {
       if (!msg || typeof msg.type !== 'string') return;
-      // A relayed message already carries its original sender's id (`from`,
-      // stamped below); a direct message's sender is just whoever's on the
-      // other end of this connection.
-      const fromId = msg.from ?? participantId;
+      // Only the host stamps `from` (below), so only a guest may believe it:
+      // the host trusting a guest-supplied one would let that guest
+      // impersonate anybody.
+      const fromId = role === 'guest' ? (msg.from ?? participantId) : participantId;
       emit(msg.type, msg.payload, fromId);
+      if (msg.direct) return; // point-to-point: the host is the endpoint, nothing to relay
       // Host relay: everyone else hears it too, as if broadcast, with the
       // original sender preserved so it doesn't look like it came from the host.
       if (role === 'host') {
-        const relay = msg.from ? msg : { ...msg, from: participantId };
+        const relay = { type: msg.type, payload: msg.payload, from: participantId };
         for (const [id, c] of connections) if (id !== participantId) c.send(relay);
       }
     });
@@ -86,6 +87,12 @@ export function createSession({ createPeer = defaultCreatePeer } = {}) {
     for (const conn of connections.values()) conn.send(msg);
   }
 
+  // Point-to-point, for request/response traffic that must not reach the
+  // other guest (a read request, its reply).
+  function sendTo(id, type, payload) {
+    connections.get(id)?.send({ type, payload, direct: true });
+  }
+
   function onMessage(type, handler) {
     if (!handlers.has(type)) handlers.set(type, new Set());
     handlers.get(type).add(handler);
@@ -104,5 +111,5 @@ export function createSession({ createPeer = defaultCreatePeer } = {}) {
     peer = null;
   }
 
-  return { host, join, send, onMessage, getRole, getParticipants, leave };
+  return { host, join, send, sendTo, onMessage, getRole, getParticipants, leave };
 }

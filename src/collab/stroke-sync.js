@@ -16,9 +16,10 @@ import { MSG } from './protocol.js';
 // resolves anything (`ponytail:` don't build a merge structure, the arrival
 // order already is the merge).
 //
-// `fileId`/`frameId`/`layerId` ride along on every message but are ignored
-// for now - phase 2 is scoped to the one canvas host and guest both have
-// open; phase 3's RemoteHostBackend is what makes routing by id matter.
+// Every stroke names its canvas (`fileId`), frame and layer; the caller's
+// `resolveTarget` maps those to a model-like {width, stride, pixels, colors}
+// or null when that canvas isn't resident here (or a promise of either). A dropped stroke for a
+// dormant canvas costs nothing: loading it later fetches the host's state.
 // A peer's message is untrusted input (this is the actual trust boundary,
 // unlike a local diff which this app always generates itself): reject
 // anything malformed rather than let applyDiff write out of bounds or
@@ -36,49 +37,35 @@ function isValidDiff(after, pixelCount, colorCount) {
   return true;
 }
 
-// ponytail: the pixel values themselves aren't checked against the color
-// table the way isValidDiff checks a stroke's colorIndex - only the host
-// ever sends a bootstrap (its own local state, phase 2's star topology),
-// so this isn't a hole yet. Revisit if a later phase lets anything but the
-// host originate one.
-function isValidBootstrap({ width, height, stride, pixels } = {}) {
-  if (!(width > 0) || !(height > 0)) return false;
-  const s = stride || width;
-  if (width > s) return false; // the visible width can never exceed the buffer's stride
-  return !!pixels && pixels.length === s * height;
-}
+export function createStrokeSync({ session, resolveTarget, requestRender }) {
+  function apply(target, payload) {
+    if (!isValidDiff(payload.after, target.pixels.length, target.colors.length)) { console.warn('Dropped a malformed collab stroke message'); return; }
+    applyDiff(target, payload.after);
+    requestRender?.(target);
+  }
 
-export function createStrokeSync({ session, model, requestRender }) {
+  // A target may arrive late (a compressed frame decoding first). Anything
+  // behind it queues so strokes still apply in arrival order; with nothing
+  // in flight the common case stays synchronous.
+  let tail = null;
   session.onMessage(MSG.STROKE, (payload) => {
-    if (!isValidDiff(payload?.after, model.pixels.length, model.colors.length)) { console.warn('Dropped a malformed collab stroke message'); return; }
-    applyDiff(model, payload.after);
-    requestRender?.();
-  });
-
-  session.onMessage(MSG.BOOTSTRAP, (payload) => {
-    if (!isValidBootstrap(payload)) { console.warn('Dropped a malformed collab bootstrap message'); return; }
-    model.width = payload.width;
-    model.height = payload.height;
-    model.stride = payload.stride;
-    model.pixels = payload.pixels;
-    requestRender?.();
-  });
-
-  // Only ever fires on the host's own session (session.js only emits it
-  // where a guest's connection opens, which is the host-side code path):
-  // a fresh joiner needs the canvas's current pixels before strokes mean
-  // anything to them.
-  session.onMessage('participant-joined', () => {
-    session.send(MSG.BOOTSTRAP, { width: model.width, height: model.height, stride: model.stride, pixels: model.pixels });
+    const target = payload && resolveTarget({ fileId: payload.fileId, frame: payload.frame, layer: payload.layer });
+    if (!target) return;
+    if (!tail && !target.then) { apply(target, payload); return; }
+    const run = (tail || Promise.resolve())
+      .then(() => target)
+      .then((t) => t && apply(t, payload))
+      .catch((err) => console.warn('Dropped a collab stroke:', err));
+    const me = tail = run.then(() => { if (tail === me) tail = null; });
   });
 
   return {
     // Call with whatever command history.commit just committed locally;
     // only pixel-edit diffs are streamable, anything else (layer/resize
     // snapshots) is silently skipped here.
-    sendStroke(command, fileId) {
+    sendStroke(command, { fileId, frame, layer }) {
       if (command.type !== 'pixelEdit' || !command.after?.length) return;
-      session.send(MSG.STROKE, { fileId, after: command.after });
+      session.send(MSG.STROKE, { fileId, frame, layer, after: command.after });
     },
   };
 }

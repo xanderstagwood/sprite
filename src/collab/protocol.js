@@ -2,7 +2,9 @@
 export const MSG = {
   CURSOR: 'cursor',
   STROKE: 'stroke',
-  BOOTSTRAP: 'bootstrap',
+  PROJECT: 'project', // host -> joiner: which project id to load over READ_REQ
+  READ_REQ: 'read-req',
+  READ_RES: 'read-res',
 };
 
 // A join link just carries the host's PeerJS id after a fixed marker, so

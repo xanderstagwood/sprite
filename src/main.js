@@ -30,6 +30,7 @@ import * as frameSelection from './frame-selection.js';
 import { createSession } from './collab/session.js';
 import { makeJoinLink, parseJoinCode, MSG } from './collab/protocol.js';
 import { createStrokeSync } from './collab/stroke-sync.js';
+import { createRemoteHostBackend, serveReads } from './collab/remote-host-backend.js';
 import { createRevealablePanel } from './panel-reveal.js';
 import { createKeybindHelp } from './keybind-help.js';
 import { renderExportPanel } from './export-panel.js';
@@ -547,6 +548,7 @@ const flushAutosave = debounce(() => {
   return autosaveDelay(file.canvasWidth * file.canvasHeight);
 });
 function autosave(file) {
+  if (backend.kind === 'remote') return; // a guest's edits reach the host as strokes, never as saves
   if (file) pendingFiles.add(file);
   else sweepAll = true;
   flushAutosave();
@@ -565,7 +567,7 @@ setInterval(() => {
 // The debounce can be several seconds on a large canvas, so flush right
 // away when the tab is hidden or closed rather than lose the last edits.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') saveProject(backend, project).catch((err) => console.error('Autosave failed:', err));
+  if (document.visibilityState === 'hidden' && backend.kind !== 'remote') saveProject(backend, project).catch((err) => console.error('Autosave failed:', err));
 });
 
 // `model` is a stable view object; switching files/layers/frames re-points
@@ -744,24 +746,74 @@ function collabButtonLabel() {
   return role === 'host' ? 'Hosting…' : role === 'guest' ? 'Connected' : 'Go Live';
 }
 
+// Strokes name their canvas by File name + frame/layer index. Returns null
+// for a canvas not resident here (a stub loads the host's saved state when
+// first opened, so nothing is lost by skipping it), and a promise for a
+// frame the in-memory cache has compressed (frame-cache.js).
+function resolveStrokeTarget({ fileId, frame, layer }) {
+  const file = project.files.find((f) => f.name === fileId);
+  if (!file || file._stub || !Number.isInteger(frame) || !Number.isInteger(layer) || !file.frames[frame]) return null;
+  const toTarget = () => {
+    const pixels = file.frames[frame]?.layerPixels[layer];
+    return pixels && { file, width: file.visibleWidth, height: file.visibleHeight, stride: file.canvasWidth, pixels, colors: file.colors };
+  };
+  return file.frames[frame]._compressed ? ensureFrameLoaded(file, frame).then(toTarget) : toTarget();
+}
+
+// A guest swaps to the host's project over a remote backend; this is what
+// it left behind, restored when the session ends.
+let localSession = null; // { backend, project }
+let flushing = null;
+// One shared save however many reads ask, so a guest fetching a canvas sees
+// the host's latest strokes without the host saving once per chunk.
+const flushForGuests = (hostBackend) => () => flushing ||= saveProject(hostBackend, project).finally(() => { flushing = null; });
+
+async function endCollab() {
+  collabSession?.leave();
+  collabSession = null;
+  strokeSync = null;
+  remoteCursors.clear();
+  if (localSession) {
+    ({ backend, project } = localSession);
+    localSession = null;
+    await switchToProject(project, { save: false });
+  }
+  redrawProjectPanel();
+}
+
 async function toggleGoLive() {
-  if (collabSession) { collabSession.leave(); collabSession = null; strokeSync = null; remoteCursors.clear(); redrawProjectPanel(); return; }
+  if (collabSession) { await endCollab(); return; }
   let code = null;
   try { code = parseJoinCode(await navigator.clipboard.readText()); } catch { /* clipboard read can be denied; treat as no code */ }
   collabSession = createSession();
-  strokeSync = createStrokeSync({ session: collabSession, model, requestRender: () => draw() });
+  strokeSync = createStrokeSync({ session: collabSession, resolveTarget: resolveStrokeTarget, requestRender: (target) => { if (target?.file) autosave(target.file); draw(); } });
   collabSession.onMessage(MSG.CURSOR, (payload, fromId) => { remoteCursors.set(fromId, payload); needsRender = true; });
-  collabSession.onMessage('participant-left', ({ id }) => remoteCursors.delete(id));
+  collabSession.onMessage('participant-left', ({ id }) => {
+    remoteCursors.delete(id);
+    if (collabSession?.getRole() === 'guest') endCollab(); // a guest's only connection is the host: it's gone, so the session is over
+  });
   try {
     if (code) {
+      collabSession.onMessage(MSG.PROJECT, async (payload, fromId) => {
+        if (typeof payload?.id !== 'string' || localSession) return;
+        const remote = createRemoteHostBackend(collabSession, fromId);
+        const shared = await loadProject(remote, payload.id).catch((err) => { console.error('Could not load the host\'s project', err); return null; });
+        if (!shared || !collabSession) return;
+        localSession = { backend, project };
+        await switchToProject(shared); // flushes the local project first, while `backend` is still the local one
+        backend = remote;
+      });
       await collabSession.join(code);
     } else {
+      const hostBackend = backend;
+      serveReads(collabSession, hostBackend, project.id, { beforeRead: flushForGuests(hostBackend) });
+      collabSession.onMessage('participant-joined', ({ id }) => collabSession.sendTo(id, MSG.PROJECT, { id: project.id }));
       const hostId = await collabSession.host();
       await navigator.clipboard.writeText(makeJoinLink(hostId));
     }
   } catch (err) {
     console.error('Collab session failed to start', err);
-    collabSession = null;
+    await endCollab();
   }
   redrawProjectPanel();
 }
@@ -842,7 +894,7 @@ const history = {
     commitCommand(file, cmd);
     autosave(file);
     draw();
-    strokeSync?.sendStroke(cmd, file.name);
+    strokeSync?.sendStroke(cmd, { fileId: file.name, frame: file.activeFrameIndex, layer: file.activeLayerIndex });
   },
 };
 
@@ -1450,8 +1502,8 @@ function openProjectListPanel() {
 // Only one project is ever open at a time (no simultaneous multi-project),
 // but every saved project persists in the registry indefinitely: switching
 // away doesn't touch the old one, it just stops being what's on screen.
-async function switchToProject(newProject) {
-  await saveProject(backend, project); // flush the outgoing project's latest edits first
+async function switchToProject(newProject, { save = true } = {}) {
+  if (save) await saveProject(backend, project); // flush the outgoing project's latest edits first
   project = newProject;
   uiPrefs.lastProjectId = project.id;
   saveUiPrefs(uiPrefs);
