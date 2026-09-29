@@ -29,6 +29,7 @@ import { ensureAllFramesLoaded, ensureFrameLoaded, syncHotWindow, getCachedThumb
 import * as frameSelection from './frame-selection.js';
 import { createSession } from './collab/session.js';
 import { makeJoinLink, parseJoinCode, MSG } from './collab/protocol.js';
+import { createStrokeSync } from './collab/stroke-sync.js';
 import { createRevealablePanel } from './panel-reveal.js';
 import { createKeybindHelp } from './keybind-help.js';
 import { renderExportPanel } from './export-panel.js';
@@ -732,6 +733,7 @@ const playback = { fps: 8, onionSkin: false, onionLayerOnly: false, playing: fal
 // session; only created on the first Go Live click, so a solo user never
 // even fetches PeerJS (see peerjs-loader.js's lazy import).
 let collabSession = null;
+let strokeSync = null; // §phase 2: live pixel sync, created alongside collabSession
 const remoteCursors = new Map(); // participant id -> { x, y, name }
 let lastCursorSendAt = 0;
 const CURSOR_SEND_INTERVAL_MS = 100; // fixed ~10fps for phase 1; Phase 4 makes this adaptive
@@ -743,10 +745,11 @@ function collabButtonLabel() {
 }
 
 async function toggleGoLive() {
-  if (collabSession) { collabSession.leave(); collabSession = null; remoteCursors.clear(); redrawProjectPanel(); return; }
+  if (collabSession) { collabSession.leave(); collabSession = null; strokeSync = null; remoteCursors.clear(); redrawProjectPanel(); return; }
   let code = null;
   try { code = parseJoinCode(await navigator.clipboard.readText()); } catch { /* clipboard read can be denied; treat as no code */ }
   collabSession = createSession();
+  strokeSync = createStrokeSync({ session: collabSession, model, requestRender: () => draw() });
   collabSession.onMessage(MSG.CURSOR, (payload, fromId) => { remoteCursors.set(fromId, payload); needsRender = true; });
   collabSession.onMessage('participant-left', ({ id }) => remoteCursors.delete(id));
   try {
@@ -834,7 +837,13 @@ const history = {
   // Full refresh (thumbnails included) once per committed edit: not per
   // animation frame or per pointermove, which is what made this laggy
   // before (see the animateCursor comment further down).
-  commit: (cmd) => { const file = getActiveFile(project); commitCommand(file, cmd); autosave(file); draw(); },
+  commit: (cmd) => {
+    const file = getActiveFile(project);
+    commitCommand(file, cmd);
+    autosave(file);
+    draw();
+    strokeSync?.sendStroke(cmd, file.name);
+  },
 };
 
 // Layer structural edits (add/delete/reorder) go through undo too, as a

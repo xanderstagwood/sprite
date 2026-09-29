@@ -1,6 +1,8 @@
 // Message type constants for the collab data channel (§ collab plan, phase 1).
 export const MSG = {
   CURSOR: 'cursor',
+  STROKE: 'stroke',
+  BOOTSTRAP: 'bootstrap',
 };
 
 // A join link just carries the host's PeerJS id after a fixed marker, so
