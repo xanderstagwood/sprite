@@ -136,6 +136,10 @@ const zoomLabel = document.createElement('div');
 zoomLabel.className = 'tool-tag-label tool-tag-label--divider';
 const primarySwatch = document.createElement('div');
 primarySwatch.className = 'tool-tag-swatch';
+// Hover handlers registered early can fire while the rest of this module is
+// still initializing (it awaits storage and the project load first), and the
+// tool tag reads state declared far below. Skipped until init has finished.
+let appReady = false;
 primarySwatch.addEventListener('mouseenter', () => showTip(colors.primary()));
 primarySwatch.addEventListener('mouseleave', () => showTip(null));
 // Export progress (§14, export.js's onExportProgress): a small bar that
@@ -211,6 +215,7 @@ const setText = (el, text) => { if (el.textContent !== text) el.textContent = te
 const setHidden = (el, hidden) => { if (el.hidden !== hidden) el.hidden = hidden; };
 
 function updateToolTag() {
+  if (!appReady) return;
   const rect = canvasRect;
   // An export in progress takes over the label slot with the progress bar
   // (already shown/hidden by the onExportProgress subscription above):
@@ -3313,6 +3318,8 @@ document.addEventListener('contextmenu', (e) => {
 }, true);
 
 resize();
+appReady = true;
+updateToolTag();
 
 // TEMPORARY diagnostic hook: remove once the stuck-Shift selection bug is
 // pinned down. Exposes the live modifier/selection state so a reproduction
