@@ -1,8 +1,8 @@
 import { createColorTable, colorIndex, bufferId } from './canvas-model.js';
 
-// .sprite v4: the File's JSON `meta` (everything except pixels) plus binary
-// chunks, each written independently so an autosave rewrites only what
-// changed:
+// .sprite v5 (meta shape unchanged since v4): the File's JSON `meta`
+// (everything except pixels) plus binary chunks, each written independently
+// so an autosave rewrites only what changed:
 //   one chunk per layer buffer: canvasWidth*canvasHeight Uint16 indices
 //     into `meta.colors`: named `frame-<frameId>-<bufferChunkId>`, both ids
 //     stable across saves; `meta.frames` lists each frame's id and its
@@ -11,11 +11,14 @@ import { createColorTable, colorIndex, bufferId } from './canvas-model.js';
 // empty; the undo chunk older builds kept is ignored).
 // Binary rather than base64-in-JSON: base64 is a third larger, and
 // JSON.stringify over a huge string blocks the main thread on every autosave.
-// v3 packed every layer of a Frame into one chunk (`read('frame', id)`), v2
-// kept every Frame in one sidecar (`read('bin')`); a file with no `version`
-// is v1 (pixels as plain arrays of hex/null). All still load, and are
-// rewritten as v4 by persistence.js.
-export const FORMAT_VERSION = 4;
+// v5 chunk bytes are deflate-raw compressed (persistence.js, around the
+// backend read/write, not here: this module only ever sees already-resolved
+// bytes). v4 chunks are the same shape, uncompressed; still loadable, and
+// rewritten as v5 on next save. v3 packed every layer of a Frame into one
+// chunk (`read('frame', id)`), v2 kept every Frame in one sidecar
+// (`read('bin')`); a file with no `version` is v1 (pixels as plain arrays of
+// hex/null). All still load, and are rewritten as v5 by persistence.js.
+export const FORMAT_VERSION = 5;
 
 let frameIdCounter = 0;
 const frameId = (frame) => frame.id ??= `f${Date.now().toString(36)}${(frameIdCounter++).toString(36)}`;
@@ -90,7 +93,7 @@ export function tidyFile(file) {
 // ('frame', id) for v3, or ('bin') for a v2 file's single sidecar. Older
 // files come back in the current shape with an empty undo stack.
 export function parseFile(meta, read = () => null) {
-  if (meta.version === FORMAT_VERSION) return decodeV4(meta, read);
+  if (meta.version === FORMAT_VERSION || meta.version === 4) return decodeV4(meta, read);
   if (meta.version === 3) return decodeV3(meta, read);
   if (meta.version === 2) return decodeV2(meta, read('bin'));
   return migrateV1(meta);

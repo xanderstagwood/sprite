@@ -1,6 +1,7 @@
 import { resumeFolder, createDefaultBackend } from './storage.js';
 import { releaseReferences } from './references.js';
 import { encodeFile, encodeStubMeta, stubFile, parseFile, chunkName, needsTidy, tidyFile, FORMAT_VERSION } from './sprite-format.js';
+import { deflate, inflate } from './compression.js';
 
 // Debounced write: autosave fires after every committed EditCommand, but
 // batched against rapid-fire commits (e.g. end-of-stroke) rather than
@@ -112,11 +113,13 @@ async function readFile(backend, projectId, fileName, raw) {
   // `fileName` is the JSON's stored name ("x.sprite"); chunks are named
   // after the File ("x"), see writeFile.
   const base = fileName.replace(/\.sprite$/, '');
-  if (raw.version === FORMAT_VERSION) {
+  if (raw.version === FORMAT_VERSION || raw.version === 4) {
     for (const { id, buffers } of raw.frames) {
       for (const cid of buffers) {
         const name = chunkName(id, cid);
-        chunks.set(`chunk:${name}`, await backend.readBytes([projectId, `${base}.sprite.${name}`]));
+        let bytes = await backend.readBytes([projectId, `${base}.sprite.${name}`]);
+        if (bytes && raw.version === FORMAT_VERSION) bytes = await inflate(bytes);
+        chunks.set(`chunk:${name}`, bytes);
       }
     }
   } else if (raw.version === 3) {
@@ -274,7 +277,7 @@ async function writeFile(backend, projectId, file) {
   let wrote = false;
   for (const chunk of enc.chunks) {
     if (same && last.chunkSigs.get(chunk.name) === chunk.sig) continue;
-    await backend.write([projectId, `${file.name}.sprite.${chunk.name}`], chunk.bytes());
+    await backend.write([projectId, `${file.name}.sprite.${chunk.name}`], await deflate(chunk.bytes()));
     wrote = true;
   }
   if (!same || last.json !== now.json) {
