@@ -160,11 +160,16 @@ export function createPalette(container, initial, onChange, onSelectColor, getPr
   function render() {
     container.innerHTML = '';
 
-    const hamburger = button({
-      glyph: '☰', icon: true, className: 'palette-hamburger', title: 'Palettes (\\)',
-      onClick: () => openMenu(hamburger),
-    });
-    container.append(hamburger);
+    // At the start: the new-color button (dimmed once the palette is full, so the chips do not shift left by its slot).
+    container.append(button({
+      glyph: '+', icon: true, className: 'chip-add', title: 'Add color (+)', disabled: state.chips.length >= MAX_CHIPS,
+      onClick: () => {
+        state.chips.push('#FFFFFF');
+        scrollPx = Infinity; // clamped to the new max in layoutChips: scrolls the new chip into view
+        render();
+        onChange(state);
+      },
+    }));
 
     const viewport = document.createElement('div');
     viewport.className = 'chip-viewport';
@@ -240,17 +245,12 @@ export function createPalette(container, initial, onChange, onSelectColor, getPr
 
     container.append(viewport);
 
-    if (state.chips.length < MAX_CHIPS) {
-      container.append(button({
-        glyph: '+', icon: true, className: 'chip-add', title: 'Add color (+)',
-        onClick: () => {
-          state.chips.push('#FFFFFF');
-          scrollPx = Infinity; // clamped to the new max in layoutChips: scrolls the new chip into view
-          render();
-          onChange(state);
-        },
-      }));
-    }
+    // At the end: the palette menu.
+    const hamburger = button({
+      glyph: '☰', icon: true, className: 'palette-hamburger', title: 'Palettes (\\)',
+      onClick: () => openMenu(hamburger),
+    });
+    container.append(hamburger);
 
     layoutChips(viewport, row);
   }
