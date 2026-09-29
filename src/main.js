@@ -155,9 +155,9 @@ primarySwatch.className = 'tool-tag-swatch';
 let appReady = false;
 primarySwatch.addEventListener('mouseenter', () => showTip(colors.primary()));
 primarySwatch.addEventListener('mouseleave', () => showTip(null));
-// Export progress (§14, export.js's onExportProgress): a small bar that
-// takes the tool label's place while an export is running, so it doesn't
-// need its own reserved slot the rest of the time.
+// Progress (§14, export.js's onExportProgress; a project import too): a small bar
+// beside "exporting" or "importing" in the tool label while one runs (showProgress),
+// so it doesn't need its own reserved slot the rest of the time.
 const exportBar = document.createElement('div');
 exportBar.className = 'tool-tag-export';
 exportBar.hidden = true;
@@ -208,8 +208,7 @@ function pulse(el) {
 // runExport for the retry-then-classify logic. It pulses when it appears.
 let exportError = null;
 onExportProgress((status) => {
-  setHidden(exportBar, !status.active);
-  if (status.active) exportBarFill.style.width = Math.round((status.fraction ?? 0) * 100) + '%';
+  showProgress(status.active ? 'exporting' : null, status.fraction ?? 0);
   if ('error' in status) exportError = status.error;
   setHidden(exportErrorLabel, status.active || !exportError);
   if (exportError) setText(exportErrorLabel, exportError.short);
@@ -217,6 +216,16 @@ onExportProgress((status) => {
   updateToolTag();
 });
 
+// "exporting" or "importing" while one runs, with the bar beside it; a removal and alerts outrank it.
+let busyText = null;
+// Shows `text` (null: none) in the tool label with the progress bar at `fraction` (0..1) beside it.
+function showProgress(text, fraction = 0) {
+  const changed = text !== busyText;
+  busyText = text;
+  setHidden(exportBar, !text);
+  if (text) exportBarFill.style.width = Math.round(fraction * 100) + '%';
+  if (changed) updateToolTag();
+}
 // A mode in progress that owns the tool label (choosing a trim anchor); a running removal and alerts outrank it.
 let modeText = null;
 // Progress of a held Backspace/Delete, 0..1, or null when none is running.
@@ -282,11 +291,11 @@ function updateToolTag() {
 function paintToolTag() {
   const rect = canvasRect;
   setHidden(removeBar, removeFraction === null);
-  const override = alertText || (removeFraction !== null ? 'removing:' : null) || modeText || noticeText;
+  const override = alertText || (removeFraction !== null ? 'removing:' : null) || busyText || modeText || noticeText;
   // An export in progress takes over the label slot with the progress bar
   // (already shown/hidden by the onExportProgress subscription above):
   // nothing else competes for it while that's up.
-  if (!exportBar.hidden || resizeBar.isOpen()) {
+  if (resizeBar.isOpen()) {
     setHidden(toolLabel, true);
   } else if (activeGroupId) {
     // The group grid (§ project panel group select) has no active tool or
@@ -1469,9 +1478,16 @@ async function pickWorkDir() {
       return;
     }
     await saveProject(backend, project);
-    if (!await connectFolder()) return;
+    const chosen = await connectFolder();
+    if (!chosen) return;
+    try {
+      await copyProject(chosen, project); // the open project moves over as it is, and is the one that opens after the reload
+    } catch (err) {
+      await deleteProject(chosen, project.id).catch(() => {}); // nothing half-copied stays in the new folder
+      throw err;
+    }
   } catch (err) {
-    if (err.name !== 'AbortError') flashTip('Could not use that folder');
+    if (err.name !== 'AbortError') { console.error('Choosing the folder failed:', err); flashTip(`Folder not used: ${String(err.message || err.name).slice(0, 40)}`, { urgent: true, ms: 8000 }); }
     return;
   }
   location.reload();
@@ -1807,16 +1823,26 @@ async function loadStarterProject() {
 }
 
 async function importProjectFile(file) {
+  let imported;
+  showProgress('importing', 0);
   try {
-    const data = projectFromArchive(new Uint8Array(await file.arrayBuffer()));
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    showProgress('importing', 0.05);
+    const data = projectFromArchive(bytes);
+    showProgress('importing', 0.15);
     // Fresh id: importing an exported copy of a still-open (or
     // previously-imported) project shouldn't collide with it in the registry.
-    const imported = { ...data, id: crypto.randomUUID() };
-    await saveProject(backend, imported);
+    imported = { ...data, id: crypto.randomUUID() };
+    await saveProject(backend, imported, undefined, (done) => showProgress('importing', 0.15 + done * 0.75)); // into the working folder, when one is connected
+    showProgress('importing', 0.95);
     const p = await loadProject(backend, imported.id);
     if (p) await switchToProject(p);
   } catch (err) {
-    console.error('Import failed: not a project archive/JSON file:', err);
+    console.error('Import failed:', err);
+    flashTip(`Import failed: ${String(err.message || err.name).slice(0, 48)}`, { urgent: true, ms: 8000 });
+    if (imported) await deleteProject(backend, imported.id).catch(() => {}); // no half-written copy left behind
+  } finally {
+    showProgress(null);
   }
 }
 
@@ -3507,6 +3533,15 @@ document.addEventListener('contextmenu', (e) => {
 
 resize();
 appReady = true;
+// Waste in the working directory (a folder no project owns, left by a save or import that failed or was cut off)
+// is cleared on every start. A folder written to in the last minute may belong to another tab mid-import: it waits.
+if (backend.kind !== 'remote') {
+  removeOrphans(backend, [project.id], { olderThan: 60_000 }).then((removed) => {
+    if (removed) popTool(`Removed ${removed} leftover folder${removed === 1 ? '' : 's'}`);
+  }, (err) => console.error('Clean up failed:', err));
+}
+if (waitingFolder) flashTip('Reconnect the folder: click its icon', { urgent: true, ms: 10000 });
+else if (starterFailed) flashTip('Starter project not saved', { urgent: true, ms: 8000 });
 updateToolTag();
 
 // TEMPORARY diagnostic hook: remove once the stuck-Shift selection bug is

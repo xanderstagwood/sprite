@@ -1382,7 +1382,11 @@ body:is([data-hint="folder"], [data-hint="menu"], [data-hint="new"]) .edge-trigg
 }
 /* Collab button while a session waits for a second person: breathes to the accent. */
 .btn.collab-waiting { background: var(--accent); animation: nudge-pulse 1.4s ease-in-out infinite; }
+/* The folder icon as an autosave writes (main.js flashSaveIcon): snaps to bright, then fades to its dim. */
+@keyframes save-flash { from { background: var(--text-primary); } to { background: var(--text-faint); } }
+.project-icon.saving .icon { animation: save-flash 700ms ease-out; }
 @media (prefers-reduced-motion: reduce) {
+  .project-icon.saving .icon { animation: none; }
   .alert-pulse { animation: none; }
   .btn.collab-waiting { animation: none; opacity: 1; }
   body[data-hint] .icon, body[data-report] .bug-btn .icon, body[data-hint] .hint-target, body[data-hint] .edge-trigger-left::after { animation: none; opacity: 1; }
