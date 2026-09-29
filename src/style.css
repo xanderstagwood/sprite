@@ -875,6 +875,7 @@ body.group-view #palette-trigger, body.group-view #palette-bar {
 .picker-hue {
   width: 100%;
   height: var(--space-16);
+  margin: 0; /* the default 2px side margin pushed the slider past the popup's right edge */
   -webkit-appearance: none;
   background: linear-gradient(to right, red, yellow, lime, cyan, blue, magenta, red);
   border: var(--border-width) solid var(--border);
